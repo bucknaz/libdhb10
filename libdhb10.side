@@ -1,0 +1,12 @@
+libdhb10.c
+libdhb10.h
+libdhb10serial.c
+libdhb10cog.c
+>compiler=C
+>memtype=cmm main ram compact
+>optimize=-Os
+>-m32bit-doubles
+>-fno-exceptions
+>defs::-std=c99
+>-lm
+>BOARD::ACTIVITYBOARD
