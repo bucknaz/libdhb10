@@ -18,10 +18,10 @@
 
 
 //For maintaining the cog
+static int lockId;
 static volatile int dbh10_cog;               // Global var for cogs to share
 static unsigned int dbh10_stack[40 + 25];    // Stack vars for other cog
 
-static volatile char *results_str;
 
 //Command to send
 static volatile int ready = 0;
@@ -34,7 +34,14 @@ static volatile int right_spd = 0;
 static volatile int left_dist = 0;
 static volatile int right_dist = 0;
 
+//fdserial port varriables
+char dhb10_reply[DHB10_LEN];
+char dhb10_cmd[DHB10_LEN];
 
+
+
+
+//Functions for interacting with the cog
 int get_heading()
 {
   return(heading);  
@@ -61,21 +68,51 @@ int get_right_distance()
 }  
 
 
-void dbh10__stop(void)
+void dhb10_gospd(int l, int r)
+{
+  sprint(dhb10_cmd, "gospd %d %d\r",l,r);
+}  
+
+
+/*
+ *
+ *
+ */
+int dbh10_start(void)
+{
+  lockId = locknew(); // get a new lock
+  lockclr(lockId); //Don't know if this is needed or not
+  dbh10_stop();
+  dbh10_cog = 1 + cogstart(dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
+  return(dbh10_cog);
+}
+
+/*
+ *
+ *
+ */
+void dbh10_stop(void)
 {
   if(dbh10_cog)
   {
     cogstop(dbh10_cog -1);
     dbh10_cog = 0;
+    lockclr(lockId); //Don't know if this is needed or not can't hurt
+    lockret(lockId);
   }    
 }
 
-int dbh10__start(void)
-{
-  dbh10__stop();
-  dbh10_cog = 1 + cogstart(dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
-  return(dbh10_cog);
-}
+
+//rbuf->lockId = locknew();
+//lockret(rbuf->lockId);
+//while (lockset(rbuf->lockId) != 0) { /*spin lock*/ }
+//lockclr(rbuf->lockId);
+
+
+
+
+
+
 
 
 //This is the cog that gets run
@@ -120,12 +157,15 @@ int dbh10__start(void)
  *
  */
 
-
+//This is the cog that we run
 void dhb10_comunicator(void *par)
 {
  int state = 0; 
  int nocommand = 1;
- drive_open(); 
+ //Clear the comand and replay buffers
+ memset(dhb10_reply, 0, DHB10_LEN);
+ memset(dhb10_cmd, 0, DHB10_LEN);
+ _dhb10_open(); 
  while(1)
  {
   // We will continuosly poll the board for for 3 value sets when 
@@ -136,44 +176,47 @@ void dhb10_comunicator(void *par)
      switch(state)
      {
        case 0:
-        send_speed();
-        results_str = recive_value();
-        if(results_str[0] == 'E')
+        _dhb10_speed();
+        memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
+        _dhb10_recive(dhb10_reply);
+        if(dhb10_reply[0] == 'E')
         {
           ;
         }
         else
         {          
           state++;         
-          sscan(results_str, "%d%d", &left_spd, &right_spd);
+          sscan(dhb10_reply, "%d%d", &left_spd, &right_spd);
         }        
         break;
 
        case 1:
-        send_heading();
-        results_str = recive_value();
-        if(results_str[0] == 'E')
+        _dhb10_heading();
+        memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
+        _dhb10_recive(dhb10_reply);
+        if(dhb10_reply[0] == 'E')
         {
           ;
         }
         else
         {          
           state++; 
-          sscan(results_str, "%d", &heading);
+          sscan(dhb10_reply, "%d", &heading);
         }        
         break;
 
        case 2:
-        send_dist();
-        results_str = recive_value();
-        if(results_str[0] == 'E')
+        _dhb10_dist();
+        memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
+        _dhb10_recive(dhb10_reply);
+        if(dhb10_reply[0] == 'E')
         {
          ; 
         }
         else
         {          
           state = 0; 
-          sscan(results_str, "%d%d", &left_dist, &right_dist);
+          sscan(dhb10_reply, "%d%d", &left_dist, &right_dist);
         }          
         break;
         
@@ -192,7 +235,7 @@ void dhb10_comunicator(void *par)
 
  }//End While    
 
- drive_close();
+ _dhb10_close();
  cogstop(dbh10_cog -1);
  dbh10_cog = 0;
 }  

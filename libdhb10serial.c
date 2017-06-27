@@ -20,12 +20,9 @@
 //The terminal stucture for the dhb-10 port
 fdserial *dhb10;
 
-int dhb10_pin_L    = DHB10_DEFAULT_SERVO_L;
-int dhb10_pin_R    = DHB10_DEFAULT_SERVO_R;
+//track if the port opened for comunications
 int dhb10_opened     = 0;
 
-char dhb10_reply[DHB10_LEN];
-char dhb10_cmd[DHB10_LEN];
 
 //#define NONE 0
 //#define SPD 1
@@ -33,21 +30,19 @@ char dhb10_cmd[DHB10_LEN];
 //#define DIST 3
 //int fetching = 0;
 
-/*
- *   functions to open, close and comunicate with the dhb10_reply
+
+/* _dhb10_open()
+ * Open the connection to the dhb-10 board
  *
  */
-char *drive_open(void)
+int _dhb10_open(void)
 {  
-  memset(dhb10_reply, 0, DHB10_LEN);
-  char *reply = dhb10_reply;
-
   #ifdef HALF_DUPLEX
-    dhb10 = fdserial_open(dhb10_pin_L, dhb10_pin_L, 0b1100, 19200);
+    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 19200);
     dhb10_opened = 1;
     pause(10);
   #else
-    dhb10 = fdserial_open(dhb10_pin_R, dhb10_pin_L, 0b0000, 19200);
+    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 19200);
     dhb10_opened = 1;
     pause(10);
     fdserial_txChar(dhb10, 'T');
@@ -62,16 +57,17 @@ char *drive_open(void)
     fdserial_txChar(dhb10, '\r');    
   #endif   
   fdserial_rxFlush(dhb10);
-  pause(2);    
-  return reply;
+  pause(2);  
+  dhb10_opened = 1;  
+  return(0);
 }
 
 
-/*
- *
+/* _dhb10_close() 
+ * close the serial port to the board
  *
  */
-void drive_close(void)
+void _dhb10_close(void)
 {
   fdserial_close(dhb10);
   dhb10_opened = 0;
@@ -79,29 +75,27 @@ void drive_close(void)
 
 
 
-/*
- *
+/* _dhb10_recive()
+ * recive the results from the board into the 
+ * reply buffer
  *
  */
-char *recive_value()
+int _dhb10_recive(char *reply)
 {
   
   int i = 0;
   int t = CNT + CLKFREQ;
   int dt = CLKFREQ;
   int ca = 0, cta = 0;
-  char *reply = dhb10_reply;
-  memset(dhb10_reply, 0, DHB10_LEN);
   while(1)
   {
     cta = fdserial_rxCount(dhb10);
     if(cta)
     {
       ca = readChar(dhb10);
-      dhb10_reply[i] = ca;
+      reply[i] = ca;
       if(ca == '\r' || ca == 0)
       {
-        reply = dhb10_reply;
         break;
       }  
       i++;
@@ -112,17 +106,18 @@ char *recive_value()
       break;
     }  
   } 
-  return(reply);  
+  return(0);  
 }  
 
 
-/* send_cmd()
- * Sends the command in the dhb10_cmd buffer to the board
+/* _dhb10_cmd()
+ * Sends the string cmd to the board
  * 
  */
-void send_cmd()
+void _dhb10_cmd(char *cmd)
 {
-  writeLine(dhb10, dhb10_cmd);
+  writeLine(dhb10, cmd);
+  fdserial_txFlush(dhb10);
   //clear the buffer
   //reset the flag
 
@@ -133,22 +128,26 @@ void send_cmd()
 
 }
 
-void dhb10_rst()
+/* _dhb10_rst()
+ * RST
+ */
+void _dhb10_rst()
 {
-  sprint(dhb10_cmd, "rst\r");
+  //Reset the dist counters
+  fdserial_txChar(dhb10, 'R');
+  fdserial_txChar(dhb10, 'S');
+  fdserial_txChar(dhb10, 'T');
+  fdserial_txChar(dhb10, '\r');
+  fdserial_txFlush(dhb10);
 }  
 
-void dhb10_gospd(int l, int r)
-{
-  sprint(dhb10_cmd, "gospd %d %d\r",l,r);
-}  
 
 
 
-/* get_speed()
+/* _dhb10_speed()
  * SPD
  */
-int send_speed()
+int _dhb10_speed()
 {
   //fetching = SPD;
   fdserial_rxFlush(dhb10);
@@ -159,11 +158,11 @@ int send_speed()
   fdserial_txFlush(dhb10);
 }
 
-/* get_heading()
+/* _dhb10_heading()
  * HEAD
  *
  */
-int send_heading()
+int _dhb10_heading()
 {
   //fetching = HEAD;
   fdserial_rxFlush(dhb10);
@@ -175,11 +174,11 @@ int send_heading()
   fdserial_txFlush(dhb10);
 }
 
-/* get_dist()
+/* _dhb10_dist()
  * DIST
  *
  */
-int send_dist()
+int _dhb10_dist()
 {
   //fetching = DIST;
   fdserial_rxFlush(dhb10);

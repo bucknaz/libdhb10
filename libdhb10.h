@@ -6,20 +6,23 @@
 extern "C" { 
 #endif
 
-//libdhb10serial
-void drive_close(void);
-char *drive_open(void);
+//Our serial interface
+void _dhb10_close(void);
+int _dhb10_open(void);
+int _dhb10_speed();
+int _dhb10_dist();
+int _dhb10_heading();
+int _dhb10_recive(char *results);
 
-//libdbh10...
-void dbh10__stop(void);
-int dbh10__start(void);
+
+
+//Cog control and function
+int dbh10_start(void);
+void dbh10_stop(void);
 void dhb10_comunicator(void *par);
 
 
-int send_speed();
-int send_dist();
-int send_heading();
-char *recive_value();
+//Public interface
 int get_heading();
 int get_left_speed();
 int get_right_speed();
@@ -28,8 +31,8 @@ int get_right_distance();
 
 
 //Define the default pins to conect to
-#define DHB10_DEFAULT_SERVO_L 16
-#define DHB10_DEFAULT_SERVO_R 17
+#define DHB10_SERVO_L 16
+#define DHB10_SERVO_R 17
 
 
 #define DHB10_LEN 64

@@ -17,7 +17,7 @@ int main()                                    // Main function
   print("Hello!");                            // Display test message
   int ls,rs,ld,rd,h;
   
-  dbh10__start();  //Start the cog for comunicating with the DBH-10
+  dbh10_start();  //Start the cog for comunicating with the DBH-10
   while(1)
   {
   ls = get_left_speed();
