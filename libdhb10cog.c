@@ -11,7 +11,46 @@
  *
  *
  */
-
+/*    Comands that return values
+ *SPD  => 20 -50
+ *HEAD => 320
+ *DIST => 1230 1520
+ *HWVER => 1
+ *VER => 1
+ *Comands to control the motors
+ *TURN 200 50
+ *ARC 50 40 180
+ *GO 90 -20
+ *GOSPD 50 40
+ *MOVE 20 -60 40
+ *TRVL 200 80
+ *TRVL 250 80 45
+ *RST
+ *    Comands for Configueration
+ *PULSE
+ *SETLF OFF
+ *DEC
+ *HEX
+ *ECHO ON
+ *VERB 1
+ *RXPIN CH1
+ *TXPIN CH2
+ *BAUD 57600
+ *SCALE 100
+ *PACE 100
+ *HOLD 200
+ *KIP 60
+ *KIT 50
+ *KIMAX 75
+ *KI 85
+ *KP 50
+ *ACC 500
+ *RAMP 80
+ *LZ 10
+ *DZ 2
+ *PPR 280
+ *
+ */
 
 #include "simpletools.h"                      // Include simple tools
 #include "libdhb10.h"
@@ -70,8 +109,15 @@ int get_right_distance()
 
 void dhb10_gospd(int l, int r)
 {
+  while (lockset(lockId) != 0) { /*spin lock*/ }
   sprint(dhb10_cmd, "gospd %d %d\r",l,r);
+  lockclr(lockId);
 }  
+
+//lockId = locknew();
+//lockret(lockId);
+//while (lockset(lockId) != 0) { /*spin lock*/ }
+//lockclr(rbuf->lockId);
 
 
 /*
@@ -103,59 +149,9 @@ void dbh10_stop(void)
 }
 
 
-//rbuf->lockId = locknew();
-//lockret(rbuf->lockId);
-//while (lockset(rbuf->lockId) != 0) { /*spin lock*/ }
-//lockclr(rbuf->lockId);
 
+//This is the main cog function 
 
-
-
-
-
-
-
-//This is the cog that gets run
-/*Comands that return values
- *SPD  => 20 -50
- *HEAD => 320
- *DIST => 1230 1520
- *HWVER => 1
- *VER => 1
- *Comands to control the motors
- *TURN 200 50
- *ARC 50 40 180
- *GO 90 -20
- *GOSPD 50 40
- *MOVE 20 -60 40
- *TRVL 200 80
- *TRVL 250 80 45
- *RST
- *Comands for Configueration
- *PULSE
- *SETLF OFF
- *DEC
- *HEX
- *ECHO ON
- *VERB 1
- *RXPIN CH1
- *TXPIN CH2
- *BAUD 57600
- *SCALE 100
- *PACE 100
- *HOLD 200
- *KIP 60
- *KIT 50
- *KIMAX 75
- *KI 85
- *KP 50
- *ACC 500
- *RAMP 80
- *LZ 10
- *DZ 2
- *PPR 280
- *
- */
 
 //This is the cog that we run
 void dhb10_comunicator(void *par)
