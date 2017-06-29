@@ -12,16 +12,16 @@
  *
  */
 /*    Comands that return values
- *SPD  => 20 -50
- *HEAD => 320
- *DIST => 1230 1520
+ **SPD  => 20 -50
+ **HEAD => 320
+ **DIST => 1230 1520
  *HWVER => 1
  *VER => 1
  *Comands to control the motors
  *TURN 200 50
  *ARC 50 40 180
  *GO 90 -20
- *GOSPD 50 40
+ **GOSPD 50 40
  *MOVE 20 -60 40
  *TRVL 200 80
  *TRVL 250 80 45
@@ -68,6 +68,13 @@ char dhb10_cmd[DHB10_LEN]; //used to pass commands to the cog (locking)
 
 //Flag to indicate command ready
 static volatile int cmd_ready=0;
+#define CMD_NONE 0
+#define CMD_SEND 1
+//#define CMD_RESET 2
+
+//Special comands use when stopping the cog
+#define CMD_STOP 98
+#define COG_STOPPED 99
 
 //A place to store Values returned by cog 
 static volatile int heading = 0;
@@ -133,6 +140,26 @@ void dhb10_gospd(int l, int r)
   lockclr(lockId);
 }  
 
+
+void dhb10_stop()
+{
+  while (lockset(lockId) != 0) { /*spin lock*/ }
+  sprint(dhb10_cmd, "gospd 0 0\r");
+  cmd_ready = 1;     
+  lockclr(lockId);
+}  
+
+void dhb10_rst()
+{
+  while (lockset(lockId) != 0) { /*spin lock*/ }
+  sprint(dhb10_cmd, "rst\r");
+  cmd_ready = 1;     
+  lockclr(lockId);
+}  
+
+
+
+
 //lockId = locknew();
 //lockret(lockId);
 //while (lockset(lockId) != 0) { /*spin lock*/ }
@@ -162,10 +189,10 @@ void dbh10_stop(void)
 {
   if(dbh10_cog)
   {
-    while(cmd_ready != 99)
+    while(cmd_ready != COG_STOPPED)
     { 
       while (lockset(lockId) != 0) { /*spin lock*/ }  
-      cmd_ready = 98;//flag cog to close serial port
+      cmd_ready = CMD_STOP;//flag cog to close serial port
       lockclr(lockId);
       pause(100);//Dont use 100% cpu clocks
     }         
@@ -262,11 +289,11 @@ void dhb10_comunicator(void *par)
         
      }//End switch      
     }//End if(!cmd_ready) 
-    else if(local_cmd_ready == 98)//Close the terminal for orderly shutdown
+    else if(local_cmd_ready == CMD_STOP)//Close the terminal for orderly shutdown
     {
       _dhb10_close();
       while (lockset(lockId) != 0) { /*spin lock*/ }  
-      cmd_ready = 99; //to indicate we are done
+      cmd_ready = COG_STOPPED; //to indicate we are done
       lockclr(lockId);
       while(1){pause(1000);}//spin here forever
     }           

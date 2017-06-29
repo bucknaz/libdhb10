@@ -9,13 +9,34 @@
 */
 #include "simpletools.h"                      // Include simple tools
 #include "libdhb10.h"
-
+#include "stdio.h"
 
 int main()                                    // Main function
 {
   char results[100];
-  print("Hello!");                            // Display test message
+  print("Hello!\n");                            // Display test message
   int ls,rs,ld,rd,h;
+ 
+  //emitNumber(12);
+  
+  char obuf[10];//buffer for 10 digits
+  char *t;
+  t = obuf;
+  int u=1234567890;
+  do {
+    *t++ = "0123456789abcdef"[u % 10];//16 for hex etc
+    u /= 10;
+  } while (u > 0);
+  
+  while (t != obuf) {
+    print("%c",*--t);
+  }
+  
+  print("\n");  
+  print("done\n");
+  
+  while(1){pause(500);}
+  
   
   dbh10_start();  //Start the cog for comunicating with the DBH-10
   while(1)
@@ -26,6 +47,7 @@ int main()                                    // Main function
   rd = get_right_distance();
   h  = get_heading();
   printf("%d %d %d %d %d\n",ls,rs,ld,rd,h );
+  
   pause(500);
   }  
  
@@ -34,4 +56,19 @@ int main()                                    // Main function
 //Dummy main function above 
 
 
+
+void emitNumber(unsigned long u)
+{
+  static char obuf[32];
+  char *t;
+  t = obuf;
+  do {
+    *t++ = "0123456789abcdef"[u % 10];//16 for hex etc
+    u /= 10;
+  } while (u > 0);
+
+  while (t != obuf) {
+    putchar(*--t);
+  }
+}
 
