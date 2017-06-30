@@ -10,6 +10,8 @@
 #include "simpletools.h"                      // Include simple tools
 #include "libdhb10.h"
 #include "stdio.h"
+static char tdigit_str[10] = "0123456789";
+
 
 int main()                                    // Main function
 {
@@ -19,12 +21,12 @@ int main()                                    // Main function
  
   //emitNumber(12);
   
-  char obuf[10];//buffer for 10 digits
+  char obuf[11];//buffer for 10 digits
   char *t;
   t = obuf;
-  int u=1234567890;
+  int u=36;
   do {
-    *t++ = "0123456789abcdef"[u % 10];//16 for hex etc
+    *t++ = tdigit_str[u % 10];//16 for hex etc
     u /= 10;
   } while (u > 0);
   
@@ -38,7 +40,7 @@ int main()                                    // Main function
   while(1){pause(500);}
   
   
-  dbh10_start();  //Start the cog for comunicating with the DBH-10
+  dbh10_cog_start();  //Start the cog for comunicating with the DBH-10
   while(1)
   {
   ls = get_left_speed();

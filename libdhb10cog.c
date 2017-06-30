@@ -69,11 +69,13 @@ char dhb10_cmd[DHB10_LEN]; //used to pass commands to the cog (locking)
 //Flag to indicate command ready
 static volatile int cmd_ready=0;
 #define CMD_NONE 0
-#define CMD_SEND 1
-//#define CMD_RESET 2
+#define CMD_GOSPD 1
+#define CMD_RESET 2
+#define CMD_STOP 3
+#define CMD_SEND 4
 
 //Special comands use when stopping the cog
-#define CMD_STOP 98
+#define COG_STOP 98
 #define COG_STOPPED 99
 
 //A place to store Values returned by cog 
@@ -82,10 +84,16 @@ static volatile int left_spd = 0;
 static volatile int right_spd = 0;
 static volatile int left_dist = 0;
 static volatile int right_dist = 0;
+static volatile int s_left = 0;  //place to xfer the left go spd
+static volatile int s_right = 0; //place to xfer the right go spd
 
 
 
 //Functions for interacting with the cog
+/*
+ *  get_heading()
+ *  Returns the most recently fetched heading value
+ */
 int get_heading()
 {
   int V;
@@ -95,6 +103,10 @@ int get_heading()
   return(V);
 }  
 
+/*
+ *  get_left_speed()
+ *  Returns the most recently fetched left speed
+ */
 int get_left_speed()
 {
   int V;
@@ -104,6 +116,10 @@ int get_left_speed()
   return(V);
 }  
 
+/*
+ *  get_right_speed()
+ *  Returns the most recently fetched right speed
+ */
 int get_right_speed()
 {
   int V;
@@ -113,6 +129,10 @@ int get_right_speed()
   return(V);
 }
   
+/*
+ *  get_left_distance()
+ *  Returns the most recently fetched left distince value
+ */
 int get_left_distance()
 {
   int V;
@@ -122,6 +142,11 @@ int get_left_distance()
   return(V);
 }
   
+  
+/*
+ *  get_right_distance()
+ *  Returns the most recently fetched right distince value
+ */
 int get_right_distance()
 {
   int V;
@@ -132,60 +157,69 @@ int get_right_distance()
 }  
 
 
+
+// Comands to send to the DHB-10 Board
+
+/*
+ *  dhb10_gospd()
+ *  Send speed to the board
+ */
 void dhb10_gospd(int l, int r)
 {
   while (lockset(lockId) != 0) { /*spin lock*/ }
-  sprint(dhb10_cmd, "gospd %d %d\r",l,r);
-  cmd_ready = 1;     
+  s_left = l;
+  s_right = r;  
+  cmd_ready = CMD_GOSPD;     
   lockclr(lockId);
 }  
 
 
+/*
+ *  dbh10_stop()
+ */
 void dhb10_stop()
 {
   while (lockset(lockId) != 0) { /*spin lock*/ }
-  sprint(dhb10_cmd, "gospd 0 0\r");
-  cmd_ready = 1;     
+  cmd_ready = CMD_STOP;     
   lockclr(lockId);
 }  
 
+/*
+ *  dhb10_rst()
+ */
 void dhb10_rst()
 {
   while (lockset(lockId) != 0) { /*spin lock*/ }
-  sprint(dhb10_cmd, "rst\r");
-  cmd_ready = 1;     
+  cmd_ready = CMD_RESET;     
   lockclr(lockId);
 }  
 
 
 
 
-//lockId = locknew();
-//lockret(lockId);
-//while (lockset(lockId) != 0) { /*spin lock*/ }
-//lockclr(rbuf->lockId);
-
+// Function to start and stop the Cog
+// And the Cog it's self
 
 /*
  *  dbh10_start()
  *  Start the cog running
  *  uses fdserial so 2 cogs are consumed
  */
-int dbh10_start(void)
+int dbh10_cog_start(void)
 {
   lockId = locknew(); // get a new lock
   lockclr(lockId); //Don't know if this is needed or not
-  dbh10_stop();
+  dbh10_cog_stop();
   cmd_ready = 0;//Just starting no commands to send
   dbh10_cog = 1 + cogstart(dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
   return(dbh10_cog);
 }
 
 /*
- *  dbh10_stop()
+ *  dbh10_cog_stop()
  *  shut the cog off and free resources
  */
-void dbh10_stop(void)
+void dbh10_cog_stop(void)
 {
   if(dbh10_cog)
   {
@@ -207,7 +241,6 @@ void dbh10_stop(void)
 
 //This is the main cog function 
 
-
 //This is the cog that we run
 void dhb10_comunicator(void *par)
 {
@@ -228,7 +261,8 @@ void dhb10_comunicator(void *par)
    local_cmd_ready = cmd_ready;
    lockclr(lockId);
    
-   if(!local_cmd_ready)
+   //if we have no command to send do the back ground fetching
+   if(local_cmd_ready == CMD_NONE)
    {
      switch(state)
      {
@@ -285,26 +319,66 @@ void dhb10_comunicator(void *par)
         
        default:
         state = 0; 
-        break;
-        
+        break;        
      }//End switch      
+
     }//End if(!cmd_ready) 
-    else if(local_cmd_ready == CMD_STOP)//Close the terminal for orderly shutdown
+    // otherwise handle the command   
+    else if(local_cmd_ready == CMD_GOSPD)//Close the terminal for orderly shutdown
+    {
+      while (lockset(lockId) != 0) { /*spin lock*/ }  
+      _dhb10_gospd(s_left,s_right);
+      cmd_ready = CMD_NONE; 
+      lockclr(lockId);  
+      memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
+      _dhb10_recive(dhb10_reply);
+      if(dhb10_reply[0] == 'E')
+      {
+       ; 
+      }
+    }   
+    else if(local_cmd_ready == CMD_RESET)//Close the terminal for orderly shutdown
+    {
+      while (lockset(lockId) != 0) { /*spin lock*/ }  
+      _dhb10_rst();
+      cmd_ready = CMD_NONE; 
+      lockclr(lockId);
+      memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
+      _dhb10_recive(dhb10_reply);
+      if(dhb10_reply[0] == 'E')
+      {
+       ; 
+      }
+    }   
+    else if(local_cmd_ready == CMD_STOP)//gospd 0 0 
+    {
+      while (lockset(lockId) != 0) { /*spin lock*/ }  
+      _dhb10_stop();
+      cmd_ready = CMD_NONE; 
+      lockclr(lockId);
+      memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
+      _dhb10_recive(dhb10_reply);
+      if(dhb10_reply[0] == 'E')
+      {
+       ; 
+      }
+    }//We need a way to stop the cog cleanly         
+    else if(local_cmd_ready == COG_STOP)//Close the terminal for orderly shutdown
     {
       _dhb10_close();
       while (lockset(lockId) != 0) { /*spin lock*/ }  
       cmd_ready = COG_STOPPED; //to indicate we are done
       lockclr(lockId);
       while(1){pause(1000);}//spin here forever
-    }           
-    else
+    }                   
+    else if(local_cmd_ready == CMD_SEND)//gospd 0 0 
     {
       //send command and fetch results
       while (lockset(lockId) != 0) { /*spin lock*/ }
       _dhb10_cmd(dhb10_cmd);
-      cmd_ready = 0; 
-      lockclr(lockId);//Clear the lock and allow others to setup command
-      
+      cmd_ready = CMD_NONE; 
+      lockclr(lockId);//Clear the lock and allow others to setup command     
+
       memset(dhb10_reply, 0, DHB10_LEN);//clear the reply string
       _dhb10_recive(dhb10_reply);
       if(dhb10_reply[0] == 'E')
@@ -315,7 +389,12 @@ void dhb10_comunicator(void *par)
       {   
             
       }          
-      
+    }
+    else
+    {
+      while (lockset(lockId) != 0) { /*spin lock*/ }
+      cmd_ready = CMD_NONE;          
+      lockclr(lockId);//Clear the lock and allow others to setup command     
     }//End if(!cmd_ready) else
           
    pause(100); 

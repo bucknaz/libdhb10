@@ -6,28 +6,40 @@
 extern "C" { 
 #endif
 
-//Our serial interface
-void _dhb10_close(void);
-int _dhb10_open(void);
-int _dhb10_speed();
-int _dhb10_dist();
-int _dhb10_heading();
-int _dhb10_recive(char *results);
-
-
-
-//Cog control and function
-int dbh10_start(void);
-void dbh10_stop(void);
-void dhb10_comunicator(void *par);
 
 
 //Public interface
+int dbh10_cog_start(void);
+void dbh10_cog_stop(void);
+
 int get_heading();
 int get_left_speed();
 int get_right_speed();
 int get_left_distance();
 int get_right_distance();
+void dhb10_gospd(int l, int r);
+void dhb10_stop();
+void dhb10_rst();
+
+
+//Cog function should not be calle directly
+void dhb10_comunicator(void *par);
+
+
+//Our lower level serial interface called by cog
+int _dhb10_open(void);
+void _dhb10_close(void);
+int _dhb10_recive(char *reply);
+void _dhb10_cmd(char *cmd);
+void _dhb10_rst(void);
+int _dhb10_speed(void);
+int _dhb10_heading(void);
+int _dhb10_dist(void);
+int _dhb10_gospd(int l,int r);
+int _dhb10_stop(void);
+
+
+
 
 
 //Define the default pins to conect to

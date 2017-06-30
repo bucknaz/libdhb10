@@ -23,6 +23,7 @@ fdserial *dhb10;
 //track if the port opened for comunications
 int dhb10_opened     = 0;
 
+static char digit_str[10] = "0123456789";
 
 //#define NONE 0
 //#define SPD 1
@@ -118,20 +119,12 @@ void _dhb10_cmd(char *cmd)
 {
   writeLine(dhb10, cmd);
   fdserial_txFlush(dhb10);
-  //clear the buffer
-  //reset the flag
-
-  //sscan(dhb10_cmd,"%s", cmd);
-  //writeStr(dhb10, "Hello fdserial!\n\n");
-  //sprint(dhb10_cmd, "%d %d ", 2, 4);
-  //writeDec(dhb10,42);
-
 }
 
 /* _dhb10_rst()
  * RST
  */
-void _dhb10_rst()
+void _dhb10_rst(void)
 {
   //Reset the dist counters
   fdserial_txChar(dhb10, 'R');
@@ -147,7 +140,7 @@ void _dhb10_rst()
 /* _dhb10_speed()
  * SPD
  */
-int _dhb10_speed()
+int _dhb10_speed(void)
 {
   //fetching = SPD;
   fdserial_rxFlush(dhb10);
@@ -162,7 +155,7 @@ int _dhb10_speed()
  * HEAD
  *
  */
-int _dhb10_heading()
+int _dhb10_heading(void)
 {
   //fetching = HEAD;
   fdserial_rxFlush(dhb10);
@@ -178,7 +171,7 @@ int _dhb10_heading()
  * DIST
  *
  */
-int _dhb10_dist()
+int _dhb10_dist(void)
 {
   //fetching = DIST;
   fdserial_rxFlush(dhb10);
@@ -190,8 +183,70 @@ int _dhb10_dist()
   fdserial_txFlush(dhb10);
 }      
 
+/* _dhb10_dist()
+ * DIST
+ *
+ */
+int _dhb10_gospd(int l,int r)
+{
+  char obuf[11];//buffer for 10 digits
+  char *t;
+  t = obuf;
+  
+  //fetching = DIST;
+  fdserial_rxFlush(dhb10);
+  fdserial_txChar(dhb10, 'G');
+  fdserial_txChar(dhb10, 'O');
+  fdserial_txChar(dhb10, 'S');
+  fdserial_txChar(dhb10, 'P');
+  fdserial_txChar(dhb10, 'D');
+  fdserial_txChar(dhb10, ' ');
+
+  do {
+    *t++ = digit_str[l % 10];//16 for hex etc
+    l /= 10;
+  } while (l > 0);
+  
+  while (t != obuf) {
+    fdserial_txChar(dhb10,*--t);
+  }
+  fdserial_txChar(dhb10, ' ');
+  do {
+    *t++ = digit_str[r % 10];//16 for hex etc
+    r /= 10;
+  } while (r > 0);
+  
+  while (t != obuf) {
+    fdserial_txChar(dhb10,*--t);
+  }
+  fdserial_txChar(dhb10, '\r');
+  fdserial_txFlush(dhb10);
+}      
 
 
-
+/* _dhb10_dist()
+ * DIST
+ *
+ */
+int _dhb10_stop(void)
+{
+  char obuf[11];//buffer for 10 digits
+  char *t;
+  t = obuf;
+  
+  //fetching = DIST;
+  fdserial_rxFlush(dhb10);
+  fdserial_txChar(dhb10, 'G');
+  fdserial_txChar(dhb10, 'O');
+  fdserial_txChar(dhb10, 'S');
+  fdserial_txChar(dhb10, 'P');
+  fdserial_txChar(dhb10, 'D');
+  fdserial_txChar(dhb10, ' ');
+  fdserial_txChar(dhb10, '0');
+  fdserial_txChar(dhb10, ' ');
+  fdserial_txChar(dhb10, '0');
+  fdserial_txChar(dhb10, '\r');
+  fdserial_txFlush(dhb10);
+}
 
 
