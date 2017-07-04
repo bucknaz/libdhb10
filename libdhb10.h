@@ -12,18 +12,19 @@ extern "C" {
 int dbh10_cog_start(void);
 void dbh10_cog_stop(void);
 
-int get_heading();
-int get_left_speed();
-int get_right_speed();
-int get_left_distance();
-int get_right_distance();
+int get_heading(int *Heading);
+int get_speed(int *Left,int *Right);
+int get_distance(int *Left,int *Right);
+int get_last_error(char *e);
+int get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min);
 void dhb10_gospd(int l, int r);
 void dhb10_stop();
 void dhb10_rst();
 
 
 //Cog function should not be calle directly
-void dhb10_comunicator(void *par);
+void case_dhb10_comunicator(void *par);
+void if_dhb10_comunicator(void *par);
 
 
 //Our lower level serial interface called by cog
@@ -32,11 +33,11 @@ void _dhb10_close(void);
 int _dhb10_recive(char *reply);
 void _dhb10_cmd(char *cmd);
 void _dhb10_rst(void);
-int _dhb10_speed(void);
-int _dhb10_heading(void);
-int _dhb10_dist(void);
-int _dhb10_gospd(int l,int r);
-int _dhb10_stop(void);
+void _dhb10_speed(void);
+void _dhb10_heading(void);
+void _dhb10_dist(void);
+void _dhb10_gospd(int l,int r);
+void _dhb10_stop(void);
 
 
 
