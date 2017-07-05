@@ -318,7 +318,7 @@ void case_dhb10_comunicator(void *par)
   
  int state = 0; //For the state mach
  int loops = 0; // track howmany time though the loop to slow down reading the state
- 
+ int t; //general use int
  //local copyies of our inputs
  int cmd = CMD_NONE;
  int left = 0;
@@ -334,10 +334,10 @@ void case_dhb10_comunicator(void *par)
   // We will continuosly poll the board for for 3 value sets when 
   // we are just spinning waiting for somthing to do   
 
-   startcnt = CNT;//for timing howlong the cod takes
+   startcnt = CNT;//used to calculate the waitcnt time
+   
    start_cycles = CNT; //for reporting timeing
       
-   //If we are not busy with a command see if we have a new cmd
 
    if(cmd == CMD_NONE)
    {
@@ -370,6 +370,28 @@ void case_dhb10_comunicator(void *par)
           state++;    
           Error_cnt=0;     
           sscan(dhb10_reply, "%d%d", &left_spd, &right_spd);
+/*  can we replace scanf ?? 
+          t = 0;
+          left_spd = 0;         
+          right_spd = 0;
+          while (isspace(dhb10_reply[t]))
+            t++;
+          while(isdigit(dhb10_reply[t]))
+          {
+            left_spd *= 10;
+            left_spd += (dhb10_reply[t] + '0');
+            t++
+          }
+              
+          while (isspace(dhb10_reply[t]))
+            t++;
+          while(isdigit(dhb10_reply[t]))
+          {
+            right_spd *= 10;
+            right_spd += (dhb10_reply[t] + '0');
+            t++
+          }
+*/
         }        
         break;
 
@@ -385,6 +407,18 @@ void case_dhb10_comunicator(void *par)
           state++; 
           Error_cnt=0;     
           sscan(dhb10_reply, "%d", &heading);
+/*  can we replace scanf ?? 
+          t = 0;
+          heading = 0;         
+          while (isspace(dhb10_reply[t]))
+            t++;
+          while(isdigit(dhb10_reply[t]))
+          {
+            heading *= 10;
+            heading += (dhb10_reply[t] + '0');
+            t++
+          }              
+*/
         }        
         break;
 
@@ -400,6 +434,28 @@ void case_dhb10_comunicator(void *par)
           state = 0; 
           Error_cnt=0;  
           sscan(dhb10_reply, "%d%d", &left_dist, &right_dist);
+/*  can we replace scanf ?? 
+          t = 0;
+          left_dist = 0;         
+          right_dist = 0;
+          while (isspace(dhb10_reply[t]))
+            t++;
+          while(isdigit(dhb10_reply[t]))
+          {
+            left_dist *= 10;
+            left_dist += (dhb10_reply[t] + '0');
+            t++
+          }
+              
+          while (isspace(dhb10_reply[t]))
+            t++;
+          while(isdigit(dhb10_reply[t]))
+          {
+            right_dist *= 10;
+            right_dist += (dhb10_reply[t] + '0');
+            t++
+          }
+*/
         }          
         break;
         
@@ -498,9 +554,10 @@ void case_dhb10_comunicator(void *par)
      loop_cnt++;
      lockclr(output_lockId);
    }            
-   //Track the time it takes to get though the loop
-   //min max and current
-   endcnt = CNT;
+
+   endcnt = CNT; //used to calculate wait times
+
+   //Track the time it takes to get though the loop 
    end_cycles = CNT; //get the total time in the loop
    
    //ticks = (CLKFREQ/50) - (endcnt - startcnt);
@@ -509,6 +566,7 @@ void case_dhb10_comunicator(void *par)
    ticks = (CLKFREQ/70) - (endcnt - startcnt);
    waitcnt(ticks + CNT);//loop at 50hz every 20 ms
    //70 14.28ms
+   
 //   end_cycles = CNT; //get the total time in the loop
 
    //report them back             
