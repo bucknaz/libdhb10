@@ -85,12 +85,14 @@ static volatile int right_spd = 0;
 static volatile int left_dist = 0;
 static volatile int right_dist = 0;
 
+//Variables used for timming the cog execution
+#if defined DHB10_COG_TIMMING
 static volatile int min_cycles = 0;
 static volatile int max_cycles = 0;
 static volatile int cur_cycles = 0;
-static volatile  unsigned int startcnt; //the count at the start of the loop
-static volatile  unsigned int endcnt; //the count at the end of the loop
-
+static volatile unsigned int startcnt; //the count at the start of the loop
+static volatile unsigned int endcnt; //the count at the end of the loop
+#endif
 
 //These are values sent to the cog
 static volatile int s_left = 0;  //place to xfer the left go spd
@@ -99,11 +101,15 @@ static volatile int s_right = 0; //place to xfer the right go spd
 
 //Track how many errors since last succsessfull send
 static volatile int Error_cnt=0;
-static volatile int loop_cnt=0;
 static char last_error[DHB10_LEN]; //used to store the last error msg
 //Command and reply buffers 
 static char dhb10_reply[DHB10_LEN];//only used inside the cog
 static char dhb10_cmd[DHB10_LEN]; //used to pass commands to the cog (locking)
+
+//For sending values to the dhb-10 board  
+static char obuf[11];//buffer for 10 digits
+static volatile char *ot;
+
 
 /////////
 //The terminal stucture for the dhb-10 port
@@ -111,6 +117,8 @@ fdserial *dhb10;
 
 //track if the port opened for comunications
 int dhb10_opened     = 0;
+
+//Use this to convert numbers to ascii
 static char digit_str[10] = "0123456789";
 
 
@@ -176,20 +184,21 @@ int get_last_error(char *e)
   return( errs ); 
 }  
 
-int get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min)
+#if defined DHB10_COG_TIMMING
+void get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min)
 {
   int e;
-   while (lockset(output_lockId) != 0) { /*spin lock*/ } 
-   *min = min_cycles;
-   *max = max_cycles;
-   *cur = cur_cycles;
-   max_cycles = 0;
-   min_cycles = CLKFREQ;//some large number
-   e= loop_cnt;
-   loop_cnt=0;
-   lockclr(output_lockId);   
-   return(e);
+  while (lockset(output_lockId) != 0) { /*spin lock*/ } 
+  *min = min_cycles;
+  *max = max_cycles;
+  *cur = cur_cycles;
+  max_cycles = 0;
+  min_cycles = CLKFREQ;//some large number
+  lockclr(output_lockId);   
+  return;
 }  
+#endif
+
 // Comands to send to the DHB-10 Board
 
 /*
@@ -254,9 +263,7 @@ int dbh10_cog_start(void)
 
   cmd_ready = 0;//Just starting no commands to send
   
-  // if_dhb10_comunicator
-  // case_dhb10_comunicator
-  dbh10_cog = 1 + cogstart(case_dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
+  dbh10_cog = 1 + cogstart(_dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
   return(dbh10_cog);
 }
 
@@ -310,20 +317,19 @@ void dbh10_cog_stop(void)
  * send successfully
  * 
  */
-
-
-
-void case_dhb10_comunicator(void *par)
+void _dhb10_comunicator(void *par)
 {
   
  int state = 0; //For the state mach
- int loops = 0; // track howmany time though the loop to slow down reading the state
  int t; //general use int
+
  //local copyies of our inputs
  int cmd = CMD_NONE;
  int left = 0;
  int right = 0;
  
+ //start_cycles and end_cycles may need to be global static volatiles
+ //We use thease to calculate wait times
  int start_cycles=0,end_cycles;
  unsigned int ticks = CNT;// + sixteen;
   
@@ -331,17 +337,15 @@ void case_dhb10_comunicator(void *par)
 
  while(1)
  {
-  // We will continuosly poll the board for for 3 value sets when 
-  // we are just spinning waiting for somthing to do   
-
+   #if defined DHB10_COG_TIMMING
    startcnt = CNT;//used to calculate the waitcnt time
+   #endif
    
-   start_cycles = CNT; //for reporting timeing
-      
-
+   start_cycles = CNT; //Get the starting count
+   
    if(cmd == CMD_NONE)
    {
-      //Lock the inputs untill we done with them
+      //Lock the inputs and fetch local copyies
       while (lockset(input_lockId) != 0) { ; }   
       cmd = cmd_ready;
       left = s_left;
@@ -350,16 +354,19 @@ void case_dhb10_comunicator(void *par)
       lockclr(input_lockId);
    }   
    
-
    switch(cmd)
    {
-     
-   case CMD_NONE:
+   case CMD_NONE: // No cmd so fetch speed, dist or heading
      while (lockset(output_lockId) != 0) { ; }  
      switch(state)
      {
-       case 0:
-        _dhb10_speed();        
+       case 0: // get the current speed values
+        fdserial_rxFlush(dhb10); //Remove any leftovers
+        fdserial_txChar(dhb10, 'S');
+        fdserial_txChar(dhb10, 'P');
+        fdserial_txChar(dhb10, 'D');
+        fdserial_txChar(dhb10, '\r');
+        fdserial_txFlush(dhb10); // Wait till it has been sent out the port              
         _dhb10_recive(dhb10_reply);
         if(dhb10_reply[0] == 'E')
         {
@@ -369,34 +376,40 @@ void case_dhb10_comunicator(void *par)
         { 
           state++;    
           Error_cnt=0;     
-          sscan(dhb10_reply, "%d%d", &left_spd, &right_spd);
-/*  can we replace scanf ?? 
           t = 0;
           left_spd = 0;         
           right_spd = 0;
-          while (isspace(dhb10_reply[t]))
+          //Skip any spaces
+          while (dhb10_reply[t]== ' ')
             t++;
-          while(isdigit(dhb10_reply[t]))
+          //read the left speed  
+          while(dhb10_reply[t] >= '0' && dhb10_reply[t] <= '9')
           {
             left_spd *= 10;
-            left_spd += (dhb10_reply[t] + '0');
-            t++
-          }
-              
-          while (isspace(dhb10_reply[t]))
+            left_spd += (dhb10_reply[t] - '0');
             t++;
-          while(isdigit(dhb10_reply[t]))
+          }
+          //Skip the space    
+          while (dhb10_reply[t]== ' ')
+            t++;
+          //read the right speed
+          while(dhb10_reply[t] >= '0' && dhb10_reply[t] <= '9')
           {
             right_spd *= 10;
-            right_spd += (dhb10_reply[t] + '0');
-            t++
+            right_spd += (dhb10_reply[t] - '0');
+            t++;
           }
-*/
         }        
         break;
 
-       case 1:
-        _dhb10_heading();
+       case 1: // get the heading value
+        fdserial_rxFlush(dhb10); //Remove any leftovers
+        fdserial_txChar(dhb10, 'H');
+        fdserial_txChar(dhb10, 'E');
+        fdserial_txChar(dhb10, 'A');
+        fdserial_txChar(dhb10, 'D');
+        fdserial_txChar(dhb10, '\r');
+        fdserial_txFlush(dhb10); // Wait till it has been sent out the port 
         _dhb10_recive(dhb10_reply);
         if(dhb10_reply[0] == 'E')
         {
@@ -406,24 +419,29 @@ void case_dhb10_comunicator(void *par)
         { 
           state++; 
           Error_cnt=0;     
-          sscan(dhb10_reply, "%d", &heading);
-/*  can we replace scanf ?? 
           t = 0;
-          heading = 0;         
-          while (isspace(dhb10_reply[t]))
+          heading = 0;   
+          //Skip any spaces      
+          while (dhb10_reply[t]== ' ')
             t++;
-          while(isdigit(dhb10_reply[t]))
+          //Read in the heading
+          while(dhb10_reply[t] >= '0' && dhb10_reply[t] <= '9')
           {
             heading *= 10;
-            heading += (dhb10_reply[t] + '0');
-            t++
+            heading += (dhb10_reply[t] - '0');
+            t++;
           }              
-*/
         }        
         break;
 
-       case 2:
-        _dhb10_dist();
+       case 2: // get the current distance values
+        fdserial_rxFlush(dhb10); //Remove any leftovers
+        fdserial_txChar(dhb10, 'D');
+        fdserial_txChar(dhb10, 'I');
+        fdserial_txChar(dhb10, 'S');
+        fdserial_txChar(dhb10, 'T');
+        fdserial_txChar(dhb10, '\r');
+        fdserial_txFlush(dhb10);// Wait till it has been sent out the port
         _dhb10_recive(dhb10_reply);
         if(dhb10_reply[0] == 'E')
         {
@@ -433,370 +451,209 @@ void case_dhb10_comunicator(void *par)
         { 
           state = 0; 
           Error_cnt=0;  
-          sscan(dhb10_reply, "%d%d", &left_dist, &right_dist);
-/*  can we replace scanf ?? 
           t = 0;
           left_dist = 0;         
           right_dist = 0;
-          while (isspace(dhb10_reply[t]))
+          //Skip any spaces
+          while (dhb10_reply[t]== ' ')
             t++;
-          while(isdigit(dhb10_reply[t]))
+          //Read in the left distance  
+          while(dhb10_reply[t] >= '0' && dhb10_reply[t] <= '9')
           {
             left_dist *= 10;
-            left_dist += (dhb10_reply[t] + '0');
-            t++
-          }
-              
-          while (isspace(dhb10_reply[t]))
+            left_dist += (dhb10_reply[t] - '0');
             t++;
-          while(isdigit(dhb10_reply[t]))
+          }
+          //skip the space
+          while (dhb10_reply[t]== ' ')
+            t++;
+          //read in the right distance
+          while(dhb10_reply[t] >= '0' && dhb10_reply[t] <= '9')
           {
             right_dist *= 10;
-            right_dist += (dhb10_reply[t] + '0');
-            t++
+            right_dist += (dhb10_reply[t] - '0');
+            t++;
           }
-*/
         }          
         break;
         
        default:
         state = 0; 
         break;        
-     }//End switch  
+     }//End switch(state)  
      lockclr(output_lockId);    
      break;         
     
-   case CMD_GOSPD: //Close the terminal for orderly shutdown
-        _dhb10_gospd(left,right);
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-        }        
-      break;
+   case CMD_GOSPD: // send the left and right gospd values
+     //if(!dhb10_opened){return;}
+     fdserial_rxFlush(dhb10); //Remove any leftovers
+     fdserial_txChar(dhb10, 'G');
+     fdserial_txChar(dhb10, 'O');
+     fdserial_txChar(dhb10, 'S');
+     fdserial_txChar(dhb10, 'P');
+     fdserial_txChar(dhb10, 'D');
+     fdserial_txChar(dhb10, ' ');
+   
+     ot = obuf;//reset the buffer pointer
+     //convert the left value to ascii 
+     do {
+       *ot++ = digit_str[left % 10];//16 for hex etc
+       left /= 10;
+     } while (left > 0);
+     //Remember the string in the buffer is reversed
+     while (ot != obuf) {
+       fdserial_txChar(dhb10,*--ot);
+     }
+     //We need to send a space between the values
+     fdserial_txChar(dhb10, ' ');
+     
+     //ot = obuf from the while (ot != obuf) above
+     //so we can now convert the right value
+     do {
+       *ot++ = digit_str[right % 10];//16 for hex etc
+       right /= 10;
+     } while (right > 0);
+     //Remember the string in the buffer is reversed
+     while (ot != obuf) {
+       fdserial_txChar(dhb10,*--ot);
+     }
+     //Finish with a return
+     fdserial_txChar(dhb10, '\r');
+     
+     fdserial_txFlush(dhb10); // Wait till it has been sent out the port
+
+     //Now get the results
+     _dhb10_recive(dhb10_reply);
+     if(dhb10_reply[0] == 'E')
+     {
+         Error_cnt++;
+     }
+     else
+     {
+       Error_cnt=0; 
+       cmd = CMD_NONE;          
+     }        
+     break;
           
    case CMD_RESET://Reset the distance and heading counters
-        _dhb10_rst();
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-          state = 2;
-        }        
-      break;
-        
-   case CMD_STOP://gospd 0 0 
-        _dhb10_stop();
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-        }        
-        break;
-              
-   //We should try to use predefined commands instead                  
-   case CMD_SEND: 
-        //send command and fetch results
-        _dhb10_cmd(dhb10_cmd);
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-        }
-        break;                 
+     fdserial_rxFlush(dhb10); //Remove any leftovers
+     fdserial_txChar(dhb10, 'R');
+     fdserial_txChar(dhb10, 'S');
+     fdserial_txChar(dhb10, 'T');
+     fdserial_txChar(dhb10, '\r');
+     fdserial_txFlush(dhb10); // Wait till it has been sent out the port
 
-   case COG_STOP:
-        _dhb10_close();
-        cmd_ready = COG_STOPPED; //to indicate we are done
-        while(1){pause(1000);}//spin here forever
-        break;
-
-      
-   //We are doing nothing this time though
-   default:
+     _dhb10_recive(dhb10_reply);
+     if(dhb10_reply[0] == 'E')
+     {
+        Error_cnt++;
+     }
+     else
+     {
+        Error_cnt=0; 
         cmd = CMD_NONE;          
-        cmd_ready = CMD_NONE;// Let them know we are done
-        break;   
+        state = 2;
+     }        
+     break;
+        
+  case CMD_STOP:// send gospd 0 0 
+    fdserial_rxFlush(dhb10); //Remove any leftovers
+    fdserial_txChar(dhb10, 'G');
+    fdserial_txChar(dhb10, 'O');
+    fdserial_txChar(dhb10, 'S');
+    fdserial_txChar(dhb10, 'P');
+    fdserial_txChar(dhb10, 'D');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '\r');
+    fdserial_txFlush(dhb10); // Wait till it has been sent out the port
+    _dhb10_recive(dhb10_reply);
+    if(dhb10_reply[0] == 'E')
+    {
+      Error_cnt++;
+    }
+    else
+    {
+      Error_cnt=0; 
+      cmd = CMD_NONE;          
+    }             
+    break;
+              
+  //We should try to use predefined commands instead                  
+  case CMD_SEND: //Send the string in dhb10_cmd to the board
+    fdserial_rxFlush(dhb10); //Remove any leftovers
+    writeLine(dhb10, cmd);
+    fdserial_txFlush(dhb10); // Wait till it has been sent out the port
+    _dhb10_recive(dhb10_reply);
+    if(dhb10_reply[0] == 'E')
+    {
+      Error_cnt++;
+    }
+    else
+    {
+      Error_cnt=0; 
+      cmd = CMD_NONE;          
+    }
+    break;                 
+
+  case COG_STOP://close the serial port and prepare to go away
+    _dhb10_close();
+    cmd_ready = COG_STOPPED; //to indicate we are done
+    while(1){pause(1000);}//spin here forever
+    break;
+      
+  default: // just incase something goes wacky
+    cmd = CMD_NONE;          
+    cmd_ready = CMD_NONE;// Let them know we are done
+    break;   
   }//end switch(cmd)
   
         
-   //If we got an error save the error message         
-   if(Error_cnt != 0)
-   {
-      while (lockset(output_lockId) != 0) { ; } 
-      loop_cnt++;
-      memcpy(last_error,dhb10_reply,DHB10_LEN);
-      lockclr(output_lockId);
-   }
-   else
-   {
-     while (lockset(output_lockId) != 0) { ; } 
-     loop_cnt++;
-     lockclr(output_lockId);
-   }            
+  //If we got an error save the error message         
+  if(Error_cnt != 0)
+  {
+    while (lockset(output_lockId) != 0) { ; } 
+    memcpy(last_error,dhb10_reply,DHB10_LEN);
+    lockclr(output_lockId);
+  }
 
-   endcnt = CNT; //used to calculate wait times
-
-   //Track the time it takes to get though the loop 
-   end_cycles = CNT; //get the total time in the loop
+  #if defined DHB10_COG_TIMMING
+  endcnt = CNT; //used to calculate wait times
+  #endif
+  
+  //Track the time it takes to get though the loop 
+  end_cycles = CNT; //get the end count
    
-   //ticks = (CLKFREQ/50) - (endcnt - startcnt);
-   //waitcnt(ticks + CNT);//loop at 50hz every 20 ms
- 
-   ticks = (CLKFREQ/70) - (endcnt - startcnt);
-   waitcnt(ticks + CNT);//loop at 50hz every 20 ms
-   //70 14.28ms
+  //ticks = (CLKFREQ/50) - (end_cycles - start_cycles);
+  ticks = (CLKFREQ/70) - (end_cycles - start_cycles);
+  waitcnt(ticks + CNT);//loop at 70hz every 14.28 ms
+  //loop take between 3 and 5ms to complete so we spin for about 10ms
    
-//   end_cycles = CNT; //get the total time in the loop
+  //end_cycles = CNT; //get the total time in the loop
 
-   //report them back             
-   while (lockset(output_lockId) != 0) { ; }  
-   cur_cycles =  end_cycles - start_cycles;//not including delay
-   if(cur_cycles > max_cycles)
+  //report them back             
+  #if defined DHB10_COG_TIMMING
+  while (lockset(output_lockId) != 0) { ; }  
+  if (end_cycles > start_cycles){
+    cur_cycles = end_cycles - start_cycles;//not including delay
+    if(cur_cycles > max_cycles)
       max_cycles = cur_cycles;
-   if(cur_cycles < min_cycles)
+    if(cur_cycles < min_cycles)
       min_cycles = cur_cycles;  
-   lockclr(output_lockId);   
+  }      
+  else
+  {
+    cur_cycles = CLKFREQ;//bad data
+    max_cycles = CLKFREQ;
+    min_cycles = CLKFREQ;  
+  }   
+  lockclr(output_lockId);
+  #endif   
  }//End While    
 }  
 
-
-
-
-
-/*
-void if_dhb10_comunicator(void *par)
-{
-  
- int state = 0; //For the state mach
- int loops = 0; // track howmany time though the loop to slow down reading the state
- 
- //local copyies of our inputs
- int cmd = CMD_NONE;
- int left = 0;
- int right = 0;
- 
- int start_cycles=0,end_cycles;
- unsigned int ticks = CNT;// + sixteen;
-  
- _dhb10_open(); //Open the serial port
-
- while(1)
- {
-  // We will continuosly poll the board for for 3 value sets when 
-  // we are just spinning waiting for somthing to do   
-
-   startcnt = CNT;//for timing howlong the cod takes
-   start_cycles = CNT; //for reporting timeing
-      
-   //If we are not busy with a command see if we have a new cmd
-
-   if(cmd == CMD_NONE)
-   {
-      //Lock the inputs untill we done with them
-      while (lockset(input_lockId) != 0) { ; }   
-      cmd = cmd_ready;
-      left = s_left;
-      right = s_right;  
-      cmd_ready =  CMD_NONE;
-      lockclr(input_lockId);
-   }   
-   
-   if(cmd == CMD_NONE)
-   {
-     while (lockset(output_lockId) != 0) { ; }  
-     switch(state)
-     {
-       case 0:
-        _dhb10_speed();        
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-          Error_cnt++;
-        }
-        else
-        { 
-          state++;    
-          Error_cnt=0;     
-          sscan(dhb10_reply, "%d%d", &left_spd, &right_spd);
-        }        
-        break;
-
-       case 1:
-        _dhb10_heading();
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-          Error_cnt++;
-        }
-        else
-        { 
-          state++; 
-          Error_cnt=0;     
-          sscan(dhb10_reply, "%d", &heading);
-        }        
-        break;
-
-       case 2:
-        _dhb10_dist();
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-          Error_cnt++;
-        }
-        else
-        { 
-          state = 0; 
-          Error_cnt=0;  
-          sscan(dhb10_reply, "%d%d", &left_dist, &right_dist);
-        }          
-        break;
-        
-       default:
-        state = 0; 
-        break;        
-     }//End switch  
-     lockclr(output_lockId);    
-   }            
-    
-   else if(cmd == CMD_GOSPD) //Close the terminal for orderly shutdown
-   {
-        _dhb10_gospd(left,right);
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-        }        
-   }
-   
-          
-   else if(cmd == CMD_RESET)//Reset the distance and heading counters
-   {
-        _dhb10_rst();
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-          state = 2;
-        } 
-   }            
-    
-        
-   else if(cmd == CMD_STOP)//gospd 0 0 
-   {
-        _dhb10_stop();
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-        }        
-   }   
-              
-   //We should try to use predefined commands instead                  
-   else if(cmd == CMD_SEND)
-   { 
-        //send command and fetch results
-        _dhb10_cmd(dhb10_cmd);
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-            Error_cnt++;
-        }
-        else
-        {
-          Error_cnt=0; 
-          cmd = CMD_NONE;          
-        }
-    }                
-
-    else if(cmd == COG_STOP)
-    {
-        _dhb10_close();
-        cmd_ready = COG_STOPPED; //to indicate we are done
-        while(1){pause(1000);}//spin here forever
-    }
-          
-    //We are doing nothing this time though
-    else
-    {
-        cmd = CMD_NONE;          
-        cmd_ready = CMD_NONE;// Let them know we are done
-    }        
-  
-        
-   //If we got an error save the error message         
-   if(Error_cnt != 0)
-   {
-      while (lockset(output_lockId) != 0) { ; } 
-      loop_cnt++;
-      memcpy(last_error,dhb10_reply,DHB10_LEN);
-      lockclr(output_lockId);
-   }
-   else
-   {
-     while (lockset(output_lockId) != 0) { ; } 
-     loop_cnt++;
-     lockclr(output_lockId);
-   }    
-        
-   //Track the time it takes to get though the loop
-   //min max and current
-   //after the code determin the time to wait
-   endcnt = CNT;
-   end_cycles = CNT; //get the total time in the loop
-   
-   ticks = (CLKFREQ/50) - (endcnt -startcnt);
-   waitcnt(ticks + CNT);//pause for 62.5 ms
-   
-//   end_cycles = CNT; //get the total time in the loop (62 - 63ms)
-
-   //report them back             
-   while (lockset(output_lockId) != 0) { ; }  
-   cur_cycles =  end_cycles - start_cycles;//not including delay
-   if(cur_cycles > max_cycles)
-      max_cycles = cur_cycles;
-   if(cur_cycles < min_cycles)
-      min_cycles = cur_cycles;  
-   lockclr(output_lockId);   
- }//End While    
-}  
-
-*/
 
 
 
@@ -809,11 +666,9 @@ int _dhb10_open(void)
 {  
   #ifdef HALF_DUPLEX
     dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 19200);
-    dhb10_opened = 1;
     pause(10);
   #else
     dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 19200);
-    dhb10_opened = 1;
     pause(10);
     fdserial_txChar(dhb10, 'T');
     fdserial_txChar(dhb10, 'X');
@@ -826,8 +681,32 @@ int _dhb10_open(void)
     fdserial_txChar(dhb10, '2');
     fdserial_txChar(dhb10, '\r');    
   #endif   
+  
   fdserial_rxFlush(dhb10);
+  fdserial_txFlush(dhb10);
   pause(2);  
+  //Now lets see if we can talk faster
+  //BAUD 57600
+    fdserial_txChar(dhb10, 'B');
+    fdserial_txChar(dhb10, 'A');
+    fdserial_txChar(dhb10, 'U');
+    fdserial_txChar(dhb10, 'D');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, '5');
+    fdserial_txChar(dhb10, '7');
+    fdserial_txChar(dhb10, '6');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '\r');    
+    fdserial_txFlush(dhb10);
+    
+    fdserial_close(dhb10);
+  #ifdef HALF_DUPLEX
+    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b0000, 57600);    
+  #else    
+    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
+  #endif
+  pause(10);
   dhb10_opened = 1;  
   return(0);
 }
@@ -893,147 +772,7 @@ int _dhb10_recive(char *reply)
 }  
 
 
-/* _dhb10_cmd()
- * Sends the string contained in cmd to the DHB-10 board
- * 
- */
-void _dhb10_cmd(char *cmd)
-{
-  if(!dhb10_opened){return;}
-  writeLine(dhb10, cmd);
-  fdserial_txFlush(dhb10);
-}
 
-
-
-/* _dhb10_rst()
- * Send the RST command to the DHB-10 board
- *  Resets the distance counters
- */
-void _dhb10_rst(void)
-{
-  if(!dhb10_opened){return;}
-  fdserial_txChar(dhb10, 'R');
-  fdserial_txChar(dhb10, 'S');
-  fdserial_txChar(dhb10, 'T');
-  fdserial_txChar(dhb10, '\r');
-  fdserial_txFlush(dhb10);
-}  
-
-
-
-
-/* _dhb10_speed()
- * Send the SPD command to the DHB-10 board
- */
-void _dhb10_speed(void)
-{
-  if(!dhb10_opened){return;}
-  fdserial_rxFlush(dhb10);
-  fdserial_txChar(dhb10, 'S');
-  fdserial_txChar(dhb10, 'P');
-  fdserial_txChar(dhb10, 'D');
-  fdserial_txChar(dhb10, '\r');
-  fdserial_txFlush(dhb10);
-}
-
-
-/* _dhb10_heading()
- * Send a HEAD command to the DHB-10 board
- *
- */
-void _dhb10_heading(void)
-{
-  if(!dhb10_opened){return;}
-  fdserial_rxFlush(dhb10);
-  fdserial_txChar(dhb10, 'H');
-  fdserial_txChar(dhb10, 'E');
-  fdserial_txChar(dhb10, 'A');
-  fdserial_txChar(dhb10, 'D');
-  fdserial_txChar(dhb10, '\r');
-  fdserial_txFlush(dhb10);
-}
-
-/* _dhb10_dist()
- * Send the DIST comand to the DHB-10 board
- *
- */
-void _dhb10_dist(void)
-{
-  if(!dhb10_opened){return;}
-  fdserial_rxFlush(dhb10);
-  fdserial_txChar(dhb10, 'D');
-  fdserial_txChar(dhb10, 'I');
-  fdserial_txChar(dhb10, 'S');
-  fdserial_txChar(dhb10, 'T');
-  fdserial_txChar(dhb10, '\r');
-  fdserial_txFlush(dhb10);
-}      
-
-/* _dhb10_gospd()
- * Send a GOSPD command to the DHB-10 board
- * with the values in l and r
- */
-void _dhb10_gospd(int l,int r)
-{
-  char obuf[11];//buffer for 10 digits
-  char *t;
-  t = obuf;
-  
-  if(!dhb10_opened){return;}
-  fdserial_rxFlush(dhb10);
-  fdserial_txChar(dhb10, 'G');
-  fdserial_txChar(dhb10, 'O');
-  fdserial_txChar(dhb10, 'S');
-  fdserial_txChar(dhb10, 'P');
-  fdserial_txChar(dhb10, 'D');
-  fdserial_txChar(dhb10, ' ');
-
-  do {
-    *t++ = digit_str[l % 10];//16 for hex etc
-    l /= 10;
-  } while (l > 0);
-  
-  while (t != obuf) {
-    fdserial_txChar(dhb10,*--t);
-  }
-  fdserial_txChar(dhb10, ' ');
-  do {
-    *t++ = digit_str[r % 10];//16 for hex etc
-    r /= 10;
-  } while (r > 0);
-  
-  while (t != obuf) {
-    fdserial_txChar(dhb10,*--t);
-  }
-  fdserial_txChar(dhb10, '\r');
-  fdserial_txFlush(dhb10);
-}      
-
-
-/* _dhb10_stop()
- * Send GOSPD 0 0 to the DHB-10 board
- *
- */
-void _dhb10_stop(void)
-{
-  char obuf[11];//buffer for 10 digits
-  char *t;
-  t = obuf;
-  if(!dhb10_opened){return;}
-  fdserial_rxFlush(dhb10);
-  fdserial_txChar(dhb10, 'G');
-  fdserial_txChar(dhb10, 'O');
-  fdserial_txChar(dhb10, 'S');
-  fdserial_txChar(dhb10, 'P');
-  fdserial_txChar(dhb10, 'D');
-  fdserial_txChar(dhb10, ' ');
-  fdserial_txChar(dhb10, '0');
-  fdserial_txChar(dhb10, ' ');
-  fdserial_txChar(dhb10, '0');
-  fdserial_txChar(dhb10, '\r');
-  fdserial_txFlush(dhb10);
-}
 
 
 

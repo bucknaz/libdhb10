@@ -6,7 +6,13 @@
 extern "C" { 
 #endif
 
+//Define the default pins to conect to
+#define DHB10_SERVO_L 16
+#define DHB10_SERVO_R 17
 
+#define DHB10_LEN 64
+//#define HALF_DUPLEX 1
+//#define DHB10_COG_TIMMING
 
 //Public interface
 int dbh10_cog_start(void);
@@ -16,39 +22,25 @@ int get_heading(int *Heading);
 int get_speed(int *Left,int *Right);
 int get_distance(int *Left,int *Right);
 int get_last_error(char *e);
-int get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min);
+#if defined DHB10_COG_TIMMING
+void get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min);
+#endif
 void dhb10_gospd(int l, int r);
 void dhb10_stop();
 void dhb10_rst();
 
 
 //Cog function should not be calle directly
-void case_dhb10_comunicator(void *par);
-void if_dhb10_comunicator(void *par);
+void _dhb10_comunicator(void *par);
 
 
 //Our lower level serial interface called by cog
 int _dhb10_open(void);
 void _dhb10_close(void);
 int _dhb10_recive(char *reply);
-void _dhb10_cmd(char *cmd);
-void _dhb10_rst(void);
-void _dhb10_speed(void);
-void _dhb10_heading(void);
-void _dhb10_dist(void);
-void _dhb10_gospd(int l,int r);
-void _dhb10_stop(void);
 
 
 
-
-
-//Define the default pins to conect to
-#define DHB10_SERVO_L 16
-#define DHB10_SERVO_R 17
-
-
-#define DHB10_LEN 64
 
 //These are for example
 

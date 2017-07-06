@@ -1,3 +1,4 @@
 *.binary
 *.elf
 *.o
+.DS_Store

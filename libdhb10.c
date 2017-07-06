@@ -57,15 +57,17 @@ int main()                                    // Main function
 {
   char results[100];
   print("Hello!\n");                            // Display test message
-  int ls,rs,ld,rd,h,e,l, t=0;
+  int ls,rs,ld,rd,h,e, t=0;
+  #if defined DHB10_COG_TIMMING
   unsigned int Ccur,Cmax,Cmin;
+  #endif
   float max_tm,min_tm,cur_tm;
   float tm=0.0;
-  unsigned int startcnt; //the count at the start of the loop
-  unsigned int endcnt; //the count at the end of the loop   
+  volatile unsigned int startcnt; //the count at the start of the loop
+  volatile unsigned int endcnt; //the count at the end of the loop   
 
- unsigned int cycles,start_cycles=0,end_cycles;
- unsigned int ticks = CNT;// + sixteen;
+  volatile unsigned int cycles,start_cycles=0,end_cycles;
+  unsigned int ticks = CNT;// + sixteen;
 
   dbh10_cog_start();  //Start the cog for comunicating with the DBH-10
   pause(100);
@@ -86,13 +88,13 @@ int main()                                    // Main function
   else if(t==1)
     dhb10_rst();// takes 39 ms with overhead
   else if(t==2)
-    dhb10_gospd(100,100);
+    dhb10_gospd(50,50);
   else if(t==3)
-    dhb10_gospd(100,100);
+    dhb10_gospd(50,50);
   else if(t==4)
-    dhb10_gospd(100,100);
+    dhb10_gospd(50,50);
   else if(t==5)
-    dhb10_gospd(100,100);
+    dhb10_gospd(50,50);
   else if(t==6)
     dhb10_stop();//Speed roughfly halfs ever 100ms till stopped
   else if(t==7)
@@ -104,31 +106,46 @@ int main()                                    // Main function
   else if(t==10)
     dhb10_stop();//Speed roughfly halfs ever 100ms till stopped
 
-  //e = get_speed(&ls,&rs);
-  e += get_distance(&ld,&rd);     
-  //e += get_heading(&h);
-  //l = get_cycles(&Ccur,&Cmax,&Cmin);
-  //max_tm = Cmax/(CLKFREQ/1000);
-  //min_tm = Cmin/(CLKFREQ/1000);
-  //cur_tm = Ccur/(CLKFREQ/1000);
-
+  e = get_speed(&ls,&rs);
+  e = get_distance(&ld,&rd);     
+  e = get_heading(&h);
+  #if defined DHB10_COG_TIMMING
+  get_cycles(&Ccur,&Cmax,&Cmin);
+  max_tm = Cmax/(CLKFREQ/1000);
+  min_tm = Cmin/(CLKFREQ/1000);
+  cur_tm = Ccur/(CLKFREQ/1000);
+  #endif
+  
   if(e)
   {
     e = get_last_error(results);
-    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%f ms\tl:%d\ttm:%0.3f ms\t=%d\t(%d %s)\n",
-    //                              ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,l,tm,t,e,results );
-    printf("cur:%f ms (%d %s)\n",cur_tm,e,results );
+    #if defined DHB10_COG_TIMMING
+    printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%f ms\ttm:%0.3f ms\t=%d\t(%d %s)\n",
+                                  ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,tm,t,e,results );
+    #else
+    printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\ttm:%0.3f ms\t=%d\t(%d %s)\n",
+                                  ls,rs,ld,rd,h,tm,t,e,results );
+
+    #endif
+    //printf("cur:%f ms (%d %s)\n",cur_tm,e,results );
   }
   else
- {    
-    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%0.3f ms\tl:%d\ttm:%0.3f ms\t=%d\t%c\n",
-    //                               ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,l,tm,t,dreset );                                   
+ {   
+    #if defined DHB10_COG_TIMMING
+    //33ms loops max 
+    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%0.3f ms\ttm:%0.3f ms\t%d\n",
+    //                               ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,tm,t ); 
+    #else
+    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\ttm:%0.3f ms\t%d\n",ls,rs,ld,rd,h,tm,t ); 
+    #endif
+                                 
+    //16ms loop max
+    printf("ls:%d\trs:%d\tld:%d\trd:%d,\ttm:%0.3f ms\n",ls,rs,ld,rd,tm );
+          
 
-    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\ttm:%0.3f ms\t=%d\n",
-    //                               ls,rs,ld,rd,h,tm,t );                                   
-
-    printf("%d\n",ld );                                   
+    //printf("%d\n",ld );                                   
   }  
+  
   if (!strcmp(results,"ERROR Motor or encoder error"))
   {
     while(1){pause(1000);} //spinn here
@@ -164,9 +181,18 @@ int main()                                    // Main function
   
   
 */
-
-  ticks = (CLKFREQ/60) - (endcnt - startcnt);
-  waitcnt(ticks + CNT);//loop at 30hz every 33.33 ms
+  if( (CLKFREQ/60) > (endcnt - startcnt) )
+  {
+   ticks = (CLKFREQ/60) - (endcnt - startcnt);
+   waitcnt(ticks + CNT);//loop at 30hz every 33.33 ms
+  }
+  else
+  {
+     printf("p");
+     //pause(1);    
+  }      
+  //ticks = (CLKFREQ/60) - (endcnt - startcnt);
+  //waitcnt(ticks + CNT);//loop at 30hz every 33.33 ms
 
   end_cycles = CNT;
   cycles = end_cycles-start_cycles; // = 2222528
