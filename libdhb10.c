@@ -49,7 +49,10 @@
  
   Calculate and display circumference of a circle of radius = 1.0.
 */
-
+void xmain()
+{
+  while(1){pause(1000);}
+}  
 
 //Dummy main function above 
 //Can be used for testing the library
@@ -107,8 +110,8 @@ int main()                                    // Main function
     dhb10_stop();//Speed roughfly halfs ever 100ms till stopped
 
   e = get_speed(&ls,&rs);
-  e = get_distance(&ld,&rd);     
-  e = get_heading(&h);
+  e += get_distance(&ld,&rd);     
+  e += get_heading(&h);
   #if defined DHB10_COG_TIMMING
   get_cycles(&Ccur,&Cmax,&Cmin);
   max_tm = Cmax/(CLKFREQ/1000);
@@ -133,14 +136,14 @@ int main()                                    // Main function
  {   
     #if defined DHB10_COG_TIMMING
     //33ms loops max 
-    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%0.3f ms\ttm:%0.3f ms\t%d\n",
-    //                               ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,tm,t ); 
+      printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%0.3f ms\ttm:%0.3f ms\t%d\n",
+                                   ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,tm,t ); 
     #else
-    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\ttm:%0.3f ms\t%d\n",ls,rs,ld,rd,h,tm,t ); 
+      printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\ttm:%0.3f ms\t%d\n",ls,rs,ld,rd,h,tm,t ); 
     #endif
                                  
     //16ms loop max
-    printf("ls:%d\trs:%d\tld:%d\trd:%d,\ttm:%0.3f ms\n",ls,rs,ld,rd,tm );
+    //printf("ls:%d\trs:%d\tld:%d\trd:%d,\ttm:%0.3f ms\n",ls,rs,ld,rd,tm );
           
 
     //printf("%d\n",ld );                                   
@@ -178,12 +181,16 @@ int main()                                    // Main function
   60 = 16.666
   65 = 15.38
   70 = 14.28
+  75 = 13.33
+  80 = 12.5
+  85 = 11.76
+  90 = 11.11
   
   
 */
-  if( (CLKFREQ/60) > (endcnt - startcnt) )
+  if( (CLKFREQ/15) > (endcnt - startcnt) )
   {
-   ticks = (CLKFREQ/60) - (endcnt - startcnt);
+   ticks = (CLKFREQ/15) - (endcnt - startcnt);
    waitcnt(ticks + CNT);//loop at 30hz every 33.33 ms
   }
   else

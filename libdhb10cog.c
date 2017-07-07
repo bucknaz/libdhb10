@@ -106,6 +106,7 @@ static char last_error[DHB10_LEN]; //used to store the last error msg
 static char dhb10_reply[DHB10_LEN];//only used inside the cog
 static char dhb10_cmd[DHB10_LEN]; //used to pass commands to the cog (locking)
 
+
 //For sending values to the dhb-10 board  
 static char obuf[11];//buffer for 10 digits
 static volatile char *ot;
@@ -172,6 +173,10 @@ int get_distance(int *Left,int *Right)
   return(e);
 }
   
+/*
+ *  get_last_error()
+ *  Returns the most recently Error
+ */
 int get_last_error(char *e)
 {
   int errs=0;
@@ -184,6 +189,12 @@ int get_last_error(char *e)
   return( errs ); 
 }  
 
+
+
+/*
+ *  get_cycles()
+ *  Returns min, max and current cycles per loop
+ */
 #if defined DHB10_COG_TIMMING
 void get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min)
 {
@@ -198,6 +209,7 @@ void get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min)
   return;
 }  
 #endif
+
 
 // Comands to send to the DHB-10 Board
 
@@ -322,6 +334,7 @@ void _dhb10_comunicator(void *par)
   
  int state = 0; //For the state mach
  int t; //general use int
+ int start_cycles=0,end_cycles;
 
  //local copyies of our inputs
  int cmd = CMD_NONE;
@@ -330,7 +343,6 @@ void _dhb10_comunicator(void *par)
  
  //start_cycles and end_cycles may need to be global static volatiles
  //We use thease to calculate wait times
- int start_cycles=0,end_cycles;
  unsigned int ticks = CNT;// + sixteen;
   
  _dhb10_open(); //Open the serial port
@@ -625,11 +637,13 @@ void _dhb10_comunicator(void *par)
   
   //Track the time it takes to get though the loop 
   end_cycles = CNT; //get the end count
-   
-  //ticks = (CLKFREQ/50) - (end_cycles - start_cycles);
-  ticks = (CLKFREQ/70) - (end_cycles - start_cycles);
-  waitcnt(ticks + CNT);//loop at 70hz every 14.28 ms
-  //loop take between 3 and 5ms to complete so we spin for about 10ms
+ 
+  //loop take between 3ms and 5ms to complete so we spin for about 10ms
+  //loop take between 5ms and 9ms (6-10 half duplex)to complete so we spin for about 10ms
+  ticks = (CLKFREQ/DHB_LOOP_DELAY) - (end_cycles - start_cycles);
+    
+  if((CLKFREQ/DHB_LOOP_DELAY) > (end_cycles - start_cycles))
+    waitcnt(ticks + CNT);//loop at 70hz every 14.28 ms
    
   //end_cycles = CNT; //get the total time in the loop
 
@@ -684,7 +698,8 @@ int _dhb10_open(void)
   
   fdserial_rxFlush(dhb10);
   fdserial_txFlush(dhb10);
-  pause(2);  
+  #if defined HIGH_SPEED_SERIAL
+  pause(10);  
   //Now lets see if we can talk faster
   //BAUD 57600
     fdserial_txChar(dhb10, 'B');
@@ -702,10 +717,12 @@ int _dhb10_open(void)
     
     fdserial_close(dhb10);
   #ifdef HALF_DUPLEX
-    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b0000, 57600);    
+    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 57600);    
   #else    
     dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
   #endif
+  #endif
+  
   pause(10);
   dhb10_opened = 1;  
   return(0);
@@ -762,7 +779,7 @@ int _dhb10_recive(char *reply)
       dt++;
     }    
     //should not take more than 4 but we will use 5 anyway
-    if( dt > 5 )
+    if( dt > 10 )
     {
       strcpy(reply, "Error, no reply from DHB-10!");
       break;

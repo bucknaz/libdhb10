@@ -11,8 +11,22 @@ extern "C" {
 #define DHB10_SERVO_R 17
 
 #define DHB10_LEN 64
+
 //#define HALF_DUPLEX 1
 //#define DHB10_COG_TIMMING
+#define HIGH_SPEED_SERIAL
+
+/*
+   full half 
+hs  5    6
+ls  9    10 
+
+*/
+#if defined HIGH_SPEED_SERIAL
+#define DHB_LOOP_DELAY 80
+#else
+#define DHB_LOOP_DELAY 60
+#endif
 
 //Public interface
 int dbh10_cog_start(void);
