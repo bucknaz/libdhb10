@@ -72,8 +72,6 @@ void _dhb10_comunicator(void *par);
 int _dhb10_recive(char *reply);
 
 
-
-
 //These are copied from the lib for examples
 //And ideas of what we may add in the future
 
