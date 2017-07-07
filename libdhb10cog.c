@@ -63,7 +63,8 @@ static volatile int dbh10_cog;               // Global var for cogs to share
 static unsigned int dbh10_stack[128];    // Stack vars for other cog
 
 
-
+//These are used in this file to communicate 
+//With the cog
 #define CMD_NONE 0
 #define CMD_GOSPD 1
 #define CMD_RESET 2
@@ -85,6 +86,12 @@ static volatile int right_spd = 0;
 static volatile int left_dist = 0;
 static volatile int right_dist = 0;
 
+//These hold the values sent to the cog
+static volatile int s_left = 0;  //place to xfer the left go spd
+static volatile int s_right = 0; //place to xfer the right go spd
+
+
+
 //Variables used for timming the cog execution
 #if defined DHB10_COG_TIMMING
 static volatile int min_cycles = 0;
@@ -94,23 +101,13 @@ static volatile unsigned int startcnt; //the count at the start of the loop
 static volatile unsigned int endcnt; //the count at the end of the loop
 #endif
 
-//These are values sent to the cog
-static volatile int s_left = 0;  //place to xfer the left go spd
-static volatile int s_right = 0; //place to xfer the right go spd
-
-
 //Track how many errors since last succsessfull send
 static volatile int Error_cnt=0;
 static char last_error[DHB10_LEN]; //used to store the last error msg
+
 //Command and reply buffers 
 static char dhb10_reply[DHB10_LEN];//only used inside the cog
 static char dhb10_cmd[DHB10_LEN]; //used to pass commands to the cog (locking)
-
-
-//For sending values to the dhb-10 board  
-static char obuf[11];//buffer for 10 digits
-static volatile char *ot;
-
 
 /////////
 //The terminal stucture for the dhb-10 port
@@ -119,15 +116,22 @@ fdserial *dhb10;
 //track if the port opened for comunications
 int dhb10_opened     = 0;
 
+//For sending values to the dhb-10 board  
+static char obuf[11];//buffer for 10 digits
+static volatile char *ot;
+
 //Use this to convert numbers to ascii
 static char digit_str[10] = "0123456789";
 
 
 
-//////
+///////////////////////////////////////////
+//                                       //
+//  Public functions to read the values  //
+//  returned by the cog from the DHB-10  //
+//                                       //
+///////////////////////////////////////////
 
-
-//Functions for interacting with the cog
 /*
  *  get_heading()
  *  Returns the most recently fetched heading value
@@ -141,6 +145,7 @@ int get_heading(int *Heading)
   lockclr(output_lockId);  
   return(e);
 }  
+
 
 /*
  *  get_speed()
@@ -173,6 +178,7 @@ int get_distance(int *Left,int *Right)
   return(e);
 }
   
+  
 /*
  *  get_last_error()
  *  Returns the most recently Error
@@ -188,7 +194,6 @@ int get_last_error(char *e)
   lockclr(output_lockId);
   return( errs ); 
 }  
-
 
 
 /*
@@ -211,11 +216,17 @@ void get_cycles(unsigned int *cur,unsigned int *max,unsigned int *min)
 #endif
 
 
-// Comands to send to the DHB-10 Board
+
+///////////////////////////////////////////
+//                                       //
+//  Public functions to send commands    //
+//  and values to the cog for the DHB-10 //
+//                                       //
+///////////////////////////////////////////
 
 /*
  *  dhb10_gospd()
- *  Send speed to the board
+ *  Send speed command to the board
  */
 void dhb10_gospd(int l, int r)
 {
@@ -229,6 +240,8 @@ void dhb10_gospd(int l, int r)
 
 /*
  *  dbh10_stop()
+ *  Tell the board to stop the motors
+ *  with gospd 0 0 command
  */
 void dhb10_stop()
 {
@@ -237,8 +250,10 @@ void dhb10_stop()
   lockclr(input_lockId);
 }  
 
+
 /*
  *  dhb10_rst()
+ *  Resets the DHB-10 distance and heading values
  */
 void dhb10_rst()
 {
@@ -250,8 +265,12 @@ void dhb10_rst()
 
 
 
-// Function to start and stop the Cog
-// And the Cog it's self
+///////////////////////////////////////////
+//                                       //
+//  Public functions to control starting //
+//  and stopping the cog                 //
+//                                       //
+///////////////////////////////////////////
 
 /*
  *  dbh10_start()
@@ -278,6 +297,7 @@ int dbh10_cog_start(void)
   dbh10_cog = 1 + cogstart(_dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
   return(dbh10_cog);
 }
+
 
 /*
  *  dbh10_cog_stop()
@@ -309,44 +329,130 @@ void dbh10_cog_stop(void)
 
 
 
-//This is the main cog function 
-
-//This is the cog that we run
-/*
- * The cog will lock the output set the value and unlock the output.
- * The cog will lock the input at the start of the loop.
- * 
- * If the is no command ready it will unlock the input and 
- * and perform a fetch for the speed, heading or distance.
- * If we get an error trying to fetch it will increment the 
- * error count and save the error message in last_error
- * 
- * If a command is ready
- * It will get a local copy of the inputs
- * and send the command to the board.
- * It will not accept new input or fetch new values
- * untill the last command has been 
- * send successfully
- * 
- */
+/////////////////////////////////////////////////
+//                                             //
+//  The cog                                    //
+//  All communications with the DHB-10         //
+//  board are handle here.                     //
+//                                             //
+//   When no command is ready to be sent       //
+//   the cog will run a state machine every    //
+//   free loop (command = CMD_NONE) to         //
+//   poll the DHB-10 board for speed,          //
+//   distance and heading.                     //
+//   The values returned by the DHB-10 board   //
+//   are made available to the public call in  // 
+//   the static global vars.                   //
+//                                             //
+//   The state of the state machine is updated // 
+//   every time though the loop if there are   //
+//   no errors.                                //
+//                                             //
+//   The time it takes to complete one loop    //
+//   is set by DHB_LOOP_DELAY.                 //
+//                                             //
+//   Command = CMD_NONE                        //
+//    State = 0 get speed                      //
+//    State = 1 get heading                    //
+//    State = 2 get distance                   //
+//                                             //
+//   If there is an error retriving the value  //
+//   the state is left unchanged and a read    //
+//   of the value will attempted the next time //
+//   thought the loop.                         //
+//                                             //
+//   The number of errors since the last       //
+//   successful read is tracked and the        //
+//   last error message is made available      //
+//   to the public functions.                  //
+//                                             //
+//   When comand is to be sent to the DHB-10   //
+//   board, the public function should set     //
+//   the values if any in s_left and s_right   //
+//   then set cmd_ready to the command to be   //
+//   performed.                                //
+//                                             //
+//   If a command is available the cog will    //
+//   make local copies of these variable,      //
+//   and set cmd_ready to CMD_NONE to          //
+//   indicate the next command can be          //
+//   setup. The cog will then process the      //
+//   command to the DHB-10 board.              //
+//                                             //
+//   If an error occures, the cog will count   //
+//   the error, save the last error message    //
+//   and continue to attempt sending the       //
+//   command up to 10 time before giving up.   //
+//                                             //
+//                                             //
+/////////////////////////////////////////////////
 void _dhb10_comunicator(void *par)
 {
   
- int state = 0; //For the state mach
- int t; //general use int
- int start_cycles=0,end_cycles;
+ int state = 0;   //For the state mach
+ int t;           //general use int
 
  //local copyies of our inputs
  int cmd = CMD_NONE;
  int left = 0;
  int right = 0;
- 
- //start_cycles and end_cycles may need to be global static volatiles
- //We use thease to calculate wait times
- unsigned int ticks = CNT;// + sixteen;
-  
- _dhb10_open(); //Open the serial port
 
+ 
+ //We use thease to calculate wait times
+ //For tracking the number of clk cyles used
+ int start_cycles=0,end_cycles; 
+ unsigned int ticks = CNT;// + sixteen;
+ 
+ //Open the serial port  
+  #ifdef HALF_DUPLEX
+    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 19200);
+  #else
+    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 19200);
+    pause(10);
+    fdserial_txChar(dhb10, 'T');
+    fdserial_txChar(dhb10, 'X');
+    fdserial_txChar(dhb10, 'P');
+    fdserial_txChar(dhb10, 'I');
+    fdserial_txChar(dhb10, 'N');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, 'C');
+    fdserial_txChar(dhb10, 'H');
+    fdserial_txChar(dhb10, '2');
+    fdserial_txChar(dhb10, '\r');    
+  #endif   
+  
+  fdserial_rxFlush(dhb10);
+  fdserial_txFlush(dhb10);
+  
+  #if defined HIGH_SPEED_SERIAL
+    pause(10);  
+    //Now lets see if we can talk faster
+    fdserial_txChar(dhb10, 'B');
+    fdserial_txChar(dhb10, 'A');
+    fdserial_txChar(dhb10, 'U');
+    fdserial_txChar(dhb10, 'D');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, '5');
+    fdserial_txChar(dhb10, '7');
+    fdserial_txChar(dhb10, '6');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '\r');    
+    fdserial_txFlush(dhb10);
+    pause(2);
+    //Close it so we can reopen at higher speed
+    fdserial_close(dhb10);
+  #ifdef HALF_DUPLEX
+    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 57600);    
+  #else    
+    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
+  #endif
+  #endif
+  fdserial_rxFlush(dhb10);
+  pause(5);
+  dhb10_opened = 1;
+
+ //Loop forever
  while(1)
  {
    #if defined DHB10_COG_TIMMING
@@ -354,9 +460,11 @@ void _dhb10_comunicator(void *par)
    #endif
    
    start_cycles = CNT; //Get the starting count
-   
-   if(cmd == CMD_NONE)
+   //fetch the next command it is ready or we have 
+   //more then 10 errors sending the last command
+   if(cmd == CMD_NONE || Error_cnt > 10 )
    {
+      Error_cnt = 0;
       //Lock the inputs and fetch local copyies
       while (lockset(input_lockId) != 0) { ; }   
       cmd = cmd_ready;
@@ -368,6 +476,7 @@ void _dhb10_comunicator(void *par)
    
    switch(cmd)
    {
+     
    case CMD_NONE: // No cmd so fetch speed, dist or heading
      while (lockset(output_lockId) != 0) { ; }  
      switch(state)
@@ -611,7 +720,12 @@ void _dhb10_comunicator(void *par)
     break;                 
 
   case COG_STOP://close the serial port and prepare to go away
-    _dhb10_close();
+    if(dhb10_opened)
+    {
+      fdserial_close(dhb10);
+    }  
+    dhb10_opened = 0;
+    
     cmd_ready = COG_STOPPED; //to indicate we are done
     while(1){pause(1000);}//spin here forever
     break;
@@ -668,79 +782,6 @@ void _dhb10_comunicator(void *par)
  }//End While    
 }  
 
-
-
-
-
-/* _dhb10_open()
- * Open the connection to the dhb-10 board
- *
- */
-int _dhb10_open(void)
-{  
-  #ifdef HALF_DUPLEX
-    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 19200);
-    pause(10);
-  #else
-    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 19200);
-    pause(10);
-    fdserial_txChar(dhb10, 'T');
-    fdserial_txChar(dhb10, 'X');
-    fdserial_txChar(dhb10, 'P');
-    fdserial_txChar(dhb10, 'I');
-    fdserial_txChar(dhb10, 'N');
-    fdserial_txChar(dhb10, ' ');
-    fdserial_txChar(dhb10, 'C');
-    fdserial_txChar(dhb10, 'H');
-    fdserial_txChar(dhb10, '2');
-    fdserial_txChar(dhb10, '\r');    
-  #endif   
-  
-  fdserial_rxFlush(dhb10);
-  fdserial_txFlush(dhb10);
-  #if defined HIGH_SPEED_SERIAL
-  pause(10);  
-  //Now lets see if we can talk faster
-  //BAUD 57600
-    fdserial_txChar(dhb10, 'B');
-    fdserial_txChar(dhb10, 'A');
-    fdserial_txChar(dhb10, 'U');
-    fdserial_txChar(dhb10, 'D');
-    fdserial_txChar(dhb10, ' ');
-    fdserial_txChar(dhb10, '5');
-    fdserial_txChar(dhb10, '7');
-    fdserial_txChar(dhb10, '6');
-    fdserial_txChar(dhb10, '0');
-    fdserial_txChar(dhb10, '0');
-    fdserial_txChar(dhb10, '\r');    
-    fdserial_txFlush(dhb10);
-    
-    fdserial_close(dhb10);
-  #ifdef HALF_DUPLEX
-    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 57600);    
-  #else    
-    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
-  #endif
-  #endif
-  
-  pause(10);
-  dhb10_opened = 1;  
-  return(0);
-}
-
-
-/* _dhb10_close() 
- * close the serial port to the board
- *
- */
-void _dhb10_close(void)
-{
-  if(dhb10_opened)
-  {
-    fdserial_close(dhb10);
-  }  
-  dhb10_opened = 0;
-}
 
 
 
