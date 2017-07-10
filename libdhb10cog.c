@@ -5,7 +5,7 @@
  * The main program will interface though thease 
  * functions to control the DHB-10 driver board
  *  
- * 
+ * Requiers 2 Cogs
  *  
  *  
  *
@@ -131,6 +131,28 @@ static char digit_str[10] = "0123456789";
 //  returned by the cog from the DHB-10  //
 //                                       //
 ///////////////////////////////////////////
+
+/*
+ *  dhb10_busy()
+ *  Returns 1 if cmd_ready is not equal to CMD_NONE
+ */
+int dhb10_busy(void)
+{
+  return(cmd_ready != CMD_NONE ? 1 : 0);
+}  
+
+/*
+ *  dhb10_wait_ready()
+ *  wait till  cmd_ready is equal to CMD_NONE
+ *  and returns
+ */
+void dhb10_wait_ready(void)
+{
+  int delay = CLKFREQ/100;// 1/10 ms
+  while(cmd_ready != CMD_NONE){waitcnt(delay + CNT);}
+  return;
+}  
+
 
 /*
  *  get_heading()
@@ -310,12 +332,13 @@ void dbh10_cog_stop(void)
     //If the cog is spinning due to a command error
     //it will not ever process the COG_STOPPED command
     //So we will hang the program here
+    
     while(cmd_ready != COG_STOPPED)
     { 
-      //while (lockset(input_lockId) != 0) { /*spin lock*/ }  
-      cmd_ready = CMD_STOP;//flag cog to close serial port
-      //lockclr(input_lockId);
-      pause(100);//Dont use 100% cpu clocks
+      while (lockset(input_lockId) != 0) { /*spin lock*/ }  
+      cmd_ready = COG_STOP;//flag cog to close serial port
+      lockclr(input_lockId);
+      pause(20);//Dont use 100% cpu clocks
     }       
       
     cogstop(dbh10_cog -1);
@@ -488,15 +511,9 @@ void _dhb10_comunicator(void *par)
         fdserial_txChar(dhb10, 'D');
         fdserial_txChar(dhb10, '\r');
         fdserial_txFlush(dhb10); // Wait till it has been sent out the port              
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-          Error_cnt++;
-        }
-        else
+        if(_dhb10_recive(dhb10_reply))
         { 
           state++;    
-          Error_cnt=0;     
           t = 0;
           left_spd = 0;         
           right_spd = 0;
@@ -531,15 +548,9 @@ void _dhb10_comunicator(void *par)
         fdserial_txChar(dhb10, 'D');
         fdserial_txChar(dhb10, '\r');
         fdserial_txFlush(dhb10); // Wait till it has been sent out the port 
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-          Error_cnt++;
-        }
-        else
+        if(_dhb10_recive(dhb10_reply))
         { 
           state++; 
-          Error_cnt=0;     
           t = 0;
           heading = 0;   
           //Skip any spaces      
@@ -563,15 +574,9 @@ void _dhb10_comunicator(void *par)
         fdserial_txChar(dhb10, 'T');
         fdserial_txChar(dhb10, '\r');
         fdserial_txFlush(dhb10);// Wait till it has been sent out the port
-        _dhb10_recive(dhb10_reply);
-        if(dhb10_reply[0] == 'E')
-        {
-          Error_cnt++;
-        }
-        else
+        if(_dhb10_recive(dhb10_reply))
         { 
           state = 0; 
-          Error_cnt=0;  
           t = 0;
           left_dist = 0;         
           right_dist = 0;
@@ -644,14 +649,8 @@ void _dhb10_comunicator(void *par)
      fdserial_txFlush(dhb10); // Wait till it has been sent out the port
 
      //Now get the results
-     _dhb10_recive(dhb10_reply);
-     if(dhb10_reply[0] == 'E')
+     if(_dhb10_recive(dhb10_reply))
      {
-         Error_cnt++;
-     }
-     else
-     {
-       Error_cnt=0; 
        cmd = CMD_NONE;          
      }        
      break;
@@ -663,17 +662,10 @@ void _dhb10_comunicator(void *par)
      fdserial_txChar(dhb10, 'T');
      fdserial_txChar(dhb10, '\r');
      fdserial_txFlush(dhb10); // Wait till it has been sent out the port
-
-     _dhb10_recive(dhb10_reply);
-     if(dhb10_reply[0] == 'E')
+     if(_dhb10_recive(dhb10_reply))
      {
-        Error_cnt++;
-     }
-     else
-     {
-        Error_cnt=0; 
         cmd = CMD_NONE;          
-        state = 2;
+        state = 2;//kludge to get the dist quicker
      }        
      break;
         
@@ -690,14 +682,8 @@ void _dhb10_comunicator(void *par)
     fdserial_txChar(dhb10, '0');
     fdserial_txChar(dhb10, '\r');
     fdserial_txFlush(dhb10); // Wait till it has been sent out the port
-    _dhb10_recive(dhb10_reply);
-    if(dhb10_reply[0] == 'E')
+    if(_dhb10_recive(dhb10_reply))
     {
-      Error_cnt++;
-    }
-    else
-    {
-      Error_cnt=0; 
       cmd = CMD_NONE;          
     }             
     break;
@@ -707,14 +693,8 @@ void _dhb10_comunicator(void *par)
     fdserial_rxFlush(dhb10); //Remove any leftovers
     writeLine(dhb10, cmd);
     fdserial_txFlush(dhb10); // Wait till it has been sent out the port
-    _dhb10_recive(dhb10_reply);
-    if(dhb10_reply[0] == 'E')
+    if(_dhb10_recive(dhb10_reply))
     {
-      Error_cnt++;
-    }
-    else
-    {
-      Error_cnt=0; 
       cmd = CMD_NONE;          
     }
     break;                 
@@ -722,10 +702,36 @@ void _dhb10_comunicator(void *par)
   case COG_STOP://close the serial port and prepare to go away
     if(dhb10_opened)
     {
-      fdserial_close(dhb10);
-    }  
+    //Reset the tx pin to the default channel 1
+    fdserial_txChar(dhb10, 'T');
+    fdserial_txChar(dhb10, 'X');
+    fdserial_txChar(dhb10, 'P');
+    fdserial_txChar(dhb10, 'I');
+    fdserial_txChar(dhb10, 'N');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, 'C');
+    fdserial_txChar(dhb10, 'H');
+    fdserial_txChar(dhb10, '1');
+    fdserial_txChar(dhb10, '\r');    
+    pause(2);
+    //Reset to the default 19200 baud rate
+    fdserial_txChar(dhb10, 'B');
+    fdserial_txChar(dhb10, 'A');
+    fdserial_txChar(dhb10, 'U');
+    fdserial_txChar(dhb10, 'D');
+    fdserial_txChar(dhb10, ' ');
+    fdserial_txChar(dhb10, '1');
+    fdserial_txChar(dhb10, '9');
+    fdserial_txChar(dhb10, '2');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '0');
+    fdserial_txChar(dhb10, '\r');    
+    fdserial_txFlush(dhb10);
+    pause(2);
+    //Close it so we can reopen at higher speed
+    fdserial_close(dhb10);
     dhb10_opened = 0;
-    
+    }      
     cmd_ready = COG_STOPPED; //to indicate we are done
     while(1){pause(1000);}//spin here forever
     break;
@@ -754,14 +760,11 @@ void _dhb10_comunicator(void *par)
  
   //loop take between 3ms and 5ms to complete so we spin for about 10ms
   //loop take between 5ms and 9ms (6-10 half duplex)to complete so we spin for about 10ms
-  ticks = (CLKFREQ/DHB_LOOP_DELAY) - (end_cycles - start_cycles);
-    
+  ticks = (CLKFREQ/DHB_LOOP_DELAY) - (end_cycles - start_cycles);   
   if((CLKFREQ/DHB_LOOP_DELAY) > (end_cycles - start_cycles))
     waitcnt(ticks + CNT);//loop at 70hz every 14.28 ms
    
-  //end_cycles = CNT; //get the total time in the loop
-
-  //report them back             
+  //report cycle back if we timing enabled            
   #if defined DHB10_COG_TIMMING
   while (lockset(output_lockId) != 0) { ; }  
   if (end_cycles > start_cycles){
@@ -788,44 +791,44 @@ void _dhb10_comunicator(void *par)
 /* _dhb10_recive()
  * recive the results from the board into the 
  * reply buffer
- *
+ * Returns 1 and clears Error_cnt if results recived OK
+ * else increments Error_cnt and returns 0
  */
 int _dhb10_recive(char *reply)
-{
-  
-  int i = 0;
-  int dt = 0;
-  
-  int ca = 0, cta = 0;
-  reply[i] = 0;
+{ 
+  int i = 0;                 // Track the position in the reply string
+  int cntr = 0;              // Counter to track timeout
+  int ca = 0, cta = 0;       //the char and the char count
+
+  reply[i] = 0;              //Start with empty string
   if(!dhb10_opened){return(0);}
-  //pause(1);
   while(1)
   {
     cta = fdserial_rxCount(dhb10);
     if(cta)
     {
-      ca = readChar(dhb10);
-      if(ca == '\r')
-        ca = 0;
-      reply[i] = ca;
-      if(ca == '\r' || ca == 0)
-      {
-        break;
-      }  
-      i++;
-      dt=0;
+      ca = readChar(dhb10);  // Fetch the character
+      if(ca == '\r') ca = 0; // We do not want \r in the reply
+      reply[i++] = ca;       // Add the char to the reply
+      if(ca == 0){break;}    // All done  
+      cntr=0;                // Reset timeout cntr
     }else{
-      pause(1);
-      dt++;
+      pause(1);              // wait a ms before trying again
+      cntr++;                // count how many times we wait
     }    
-    //should not take more than 4 but we will use 5 anyway
-    if( dt > 10 )
+    //should not take more than 4 but we will use 10 anyway
+    if( cntr > 10 )
     {
       strcpy(reply, "Error, no reply from DHB-10!");
       break;
     }  
   } 
+  if(reply[i] != 'E')
+  {
+    Error_cnt++;
+    return(1);
+  }
+  Error_cnt=0;    
   return(0);  
 }  
 

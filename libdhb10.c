@@ -7,34 +7,6 @@
   control an managment
 
 */
-
-
-  
-//static char tdigit_str[10] = "0123456789";
-/*   
-  char obuf[11];//buffer for 10 digits
-  char *t;
-  t = obuf;
-  int u=36;
-  do {
-    *t++ = tdigit_str[u % 10];
-    u /= 10;
-  } while (u > 0);
-  
-  while (t != obuf) {
-    print("%c",*--t);
-  }
-  
-  print("\n");  
-  print("done\n");
-  
-  while(1){pause(500);}
-*/  
-
-
-
-
-
 #include "simpletools.h"                      // Include simple tools
 #include "libdhb10.h"
 #include "stdio.h"
@@ -44,19 +16,96 @@
 #include <stdbool.h>
 
 
-/*
-  Floating Point Calculations.c
- 
-  Calculate and display circumference of a circle of radius = 1.0.
-*/
-void xmain()
+
+void run_test()
 {
-  while(1){pause(1000);}
+  int ls,rs,ld,rd,h,e;
+  #if defined DHB10_COG_TIMMING
+  unsigned int Ccur,Cmax,Cmin;
+  #endif
+  char results[100];
+    
+  dhb10_wait_ready();
+  dhb10_gospd(50,50);
+
+  pause(500);
+  dhb10_stop();
+    
+  e = get_speed(&ls,&rs);
+  e += get_distance(&ld,&rd);     
+  e += get_heading(&h);
+  
+  if(e)
+  {
+    e = get_last_error(results);
+    #if defined DHB10_COG_TIMMING
+    printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%f ms\t(%d %s)\n",
+                                  ls,rs,ld,rd,h,min_tm,max_tm,cur_tm,e,results );
+    #else
+    printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\t(%d %s)\n",
+                                  ls,rs,ld,rd,h,e,results );
+
+    #endif
+  }
+  else
+ {   
+    #if defined DHB10_COG_TIMMING
+      printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\tmin:%0.3f ms\tmax:%0.3f ms\tcur:%0.3f ms\n",
+                                   ls,rs,ld,rd,h,min_tm,max_tm,cur_tm ); 
+    #else
+      printf("ls:%d\trs:%d\tld:%d\trd:%d,\th:%d\t\n",ls,rs,ld,rd,h ); 
+    #endif                                 
+  }  
+  #if defined DHB10_COG_TIMMING
+  get_cycles(&Ccur,&Cmax,&Cmin);
+  max_tm = Cmax/(CLKFREQ/1000);
+  min_tm = Cmin/(CLKFREQ/1000);
+  cur_tm = Ccur/(CLKFREQ/1000);
+  #endif
+
+  return;
 }  
 
-//Dummy main function above 
-//Can be used for testing the library
-int main()                                    // Main function
+
+int main()
+{
+ 
+  print("Starting Cog\n");
+  dbh10_cog_start();  //Start the cog for comunicating with the DBH-10
+  
+  dhb10_stop();//first cmd alway give invalid
+  while(dhb10_busy()){pause(1);}
+  dhb10_stop();
+  dhb10_wait_ready();
+  dhb10_rst();
+  print("Running test\n");
+  run_test();
+  dhb10_wait_ready();
+
+  dhb10_stop();//first cmd alway give invalid
+  dhb10_wait_ready();
+  
+  print("Stopping the cog\n");
+  dbh10_cog_stop();
+ 
+  print("wait a sec\n");
+  pause(1000);
+
+  print("Starting the Cog\n");
+  dbh10_cog_start();  //Start the cog for comunicating with the DBH-10
+
+  print("Running the test a second time\n");
+  run_test();
+  dhb10_wait_ready();
+  dhb10_stop();//first cmd alway give invalid
+  print("\nDone\n");  
+}  
+
+
+
+//Dummy main function  
+//Can be used for testing/timming the library 
+int loopin_main()                                    // Main function
 {
   char results[100];
   print("Hello!\n");                            // Display test message

@@ -50,6 +50,8 @@ int dbh10_cog_start(void);
 void dbh10_cog_stop(void);
 
 //Use these function to retrieve values from the DHB-10
+int dhb10_busy(void);
+void dhb10_wait_ready(void);
 int get_heading(int *Heading);
 int get_speed(int *Left,int *Right);
 int get_distance(int *Left,int *Right);
