@@ -7,49 +7,68 @@
  *  
  * Requiers 2 Cogs
  *  
- *  
+ *    CH1           = 21
+ *    CH2           = 20
+ *    AUX1          = 22
+ *    AUX2          = 23
+ *    FAN           = 27
  *
- *
+ *  DEFAULT_TX = CH1
+ *  DEFAULT_RX = CH1
+ *  DEFAULT_BAUDRATE = 19_200
+ *  Restore
+
  */
 /*    Comands that return values
- **SPD  => 20 -50
- **HEAD => 320
- **DIST => 1230 1520
- *HWVER => 1
- *VER => 1
+ -**SPD  => 20 -50
+ -**HEAD => 320
+ -**DIST => 1230 1520
+ -*HWVER => 1
+ -*VER => 1
  *Comands to control the motors
- *TURN 200 50
- *ARC 50 40 180
- *GO 90 -20
- **GOSPD 50 40
- *MOVE 20 -60 40
- *TRVL 200 80
- *TRVL 250 80 45
- *RST
+ -*TURN 200 50
+ -*ARC 50 40 180
+ -*GO 90 -20
+ -**GOSPD 50 40
+ -*MOVE 20 -60 40
+ -*TRVL 200 80
+ -*TRVL 250 80 45
+ -*RST
  *    Comands for Configueration
- *PULSE
- *SETLF OFF
- *DEC
- *HEX
- *ECHO ON
- *VERB 1
- *RXPIN CH1
- *TXPIN CH2
- *BAUD 57600
- *SCALE 100
- *PACE 100
- *HOLD 200
- *KIP 60
- *KIT 50
- *KIMAX 75
- *KI 85
- *KP 50
- *ACC 500
- *RAMP 80
- *LZ 10
- *DZ 2
- *PPR 280
+ -*PULSE
+ -*SETLF OFF
+ -*DEC
+ -*HEX
+ -*ECHO ON
+ -*VERB 1
+ -*RXPIN CH1
+ -*TXPIN CH2
+ -*BAUD 57600
+ -*SCALE 100
+ -*PACE 100
+ -*HOLD 200
+ -*KIP 60
+ -*KIT 50
+ -*KIMAX 75
+ -*KI 85
+ -*KP 50
+ -*ACC 500
+ -*RAMP 80
+ -*LZ 10
+ -*DZ 2
+ -*PPR 280
  *
+ Found in code but not documented
+ *STOP dist  where distance is the encoder counts to stop in
+ *
+ *RESTORE 
+ *sets these to default values and writes them to eeprom  
+ *       Hold,Pace,PosPerRot,PulseScale,Baudrate,Baudmode,Tx,Rx,Deadzone,
+ *       KiLiveZone,MaxPowAccel,MaxPosAccel,Kp,Ki,KiMax,KiTimeDampen,KiLimitByPwr
+
+ *STORE param  writes the curent value of param to eeprom
+ 
+ 
  */
 
 #include "simpletools.h"                      // Include simple tools
@@ -429,6 +448,24 @@ void _dhb10_comunicator(void *par)
  int start_cycles=0,end_cycles; 
  unsigned int ticks = CNT;// + sixteen;
  
+ // The manual states
+ //Communication: 19,200 to 115,200 baud open-collector non-inverted Serial or PWM
+ //Under a default configuration, connect a bidirectional serial port at 19,200 kilobaud, to CH1
+ //For different baud rates or separate transmit and receive pins, see the BAUD and RXPIN commands.
+ // CH1 = DHB10_SERVO_L
+ // CH2 = DHB10_SERVO_R
+ 
+ // FDSERIAL_BUFF_MASK   0x3f
+ // FDSERIAL_MODE_NONE   0
+ // FDSERIAL_MODE_INVERT_RX   1
+ // FDSERIAL_MODE_INVERT_TX   2
+ //Mode bit 2 can be set to 1 to open collector/drain txpin communication with a pull-up resistor on the line.
+ // FDSERIAL_MODE_OPENDRAIN_TX   4
+ // FDSERIAL_MODE_IGNORE_TX_ECHO   8 
+ // fdserial_open use with CMM or LMM memory models
+ // fdserial_open(int rxpin, int txpin, int mode, int baudrate)
+ 
+ 
  //Open the serial port  
   #ifdef HALF_DUPLEX
     dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 19200);
@@ -677,6 +714,7 @@ void _dhb10_comunicator(void *par)
      break;
         
   case CMD_STOP:// send gospd 0 0 
+// we should use go 0 0 instead
     fdserial_rxFlush(dhb10); //Remove any leftovers
     fdserial_txChar(dhb10, 'G');
     fdserial_txChar(dhb10, 'O');
@@ -719,8 +757,12 @@ void _dhb10_comunicator(void *par)
     fdserial_txChar(dhb10, 'C');
     fdserial_txChar(dhb10, 'H');
     fdserial_txChar(dhb10, '1');
-    fdserial_txChar(dhb10, '\r');    
+    fdserial_txChar(dhb10, '\r'); 
+
+    fdserial_rxFlush(dhb10);
+    fdserial_txFlush(dhb10);   
     pause(2);
+
     //Reset to the default 19200 baud rate
     fdserial_txChar(dhb10, 'B');
     fdserial_txChar(dhb10, 'A');
@@ -734,8 +776,11 @@ void _dhb10_comunicator(void *par)
     fdserial_txChar(dhb10, '0');
     fdserial_txChar(dhb10, '\r');    
     fdserial_txFlush(dhb10);
+
+    fdserial_rxFlush(dhb10);
+    fdserial_txFlush(dhb10);   
     pause(2);
-    //Close it so we can reopen at higher speed
+    //Close it so we can reopen later
     fdserial_close(dhb10);
     dhb10_opened = 0;
     }      
