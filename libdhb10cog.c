@@ -90,8 +90,6 @@ static volatile int right_dist = 0;
 static volatile int s_left = 0;  //place to xfer the left go spd
 static volatile int s_right = 0; //place to xfer the right go spd
 
-
-
 //Variables used for timming the cog execution
 #if defined DHB10_COG_TIMMING
 static volatile int min_cycles = 0;
@@ -109,12 +107,11 @@ static char last_error[DHB10_LEN]; //used to store the last error msg
 static char dhb10_reply[DHB10_LEN];//only used inside the cog
 static char dhb10_cmd[DHB10_LEN]; //used to pass commands to the cog (locking)
 
-/////////
 //The terminal stucture for the dhb-10 port
 fdserial *dhb10;
 
 //track if the port opened for comunications
-int dhb10_opened     = 0;
+int dhb10_opened = 0;
 
 //For sending values to the dhb-10 board  
 static char obuf[11];//buffer for 10 digits
@@ -286,7 +283,6 @@ void dhb10_rst()
 
 
 
-
 ///////////////////////////////////////////
 //                                       //
 //  Public functions to control starting //
@@ -303,7 +299,6 @@ int dbh10_cog_start(void)
 {
   input_lockId = locknew(); // get a new lock
   lockclr(input_lockId); //Don't know if this is needed or not
-
 
   output_lockId = locknew(); // get a new lock
   lockclr(output_lockId); //Don't know if this is needed or not
@@ -329,6 +324,7 @@ void dbh10_cog_stop(void)
 {
   if(dbh10_cog)
   {
+<<<<<<< HEAD
     //If the cog is spinning due to a command error
     //it will not ever process the COG_STOPPED command
     //So we will hang the program here
@@ -339,6 +335,14 @@ void dbh10_cog_stop(void)
       cmd_ready = COG_STOP;//flag cog to close serial port
       lockclr(input_lockId);
       pause(20);//Dont use 100% cpu clocks
+=======
+    while(cmd_ready != COG_STOPPED)
+    { 
+      while (lockset(input_lockId) != 0) { /*spin lock*/ }  
+      cmd_ready = CMD_STOP;//flag cog to close serial port
+      lockclr(input_lockId);
+      pause(100);//Dont use 100% cpu clocks
+>>>>>>> d9d79446cea8b21574be3e21a5f223ec8fbad7b8
     }       
       
     cogstop(dbh10_cog -1);
@@ -420,7 +424,6 @@ void _dhb10_comunicator(void *par)
  int left = 0;
  int right = 0;
 
- 
  //We use thease to calculate wait times
  //For tracking the number of clk cyles used
  int start_cycles=0,end_cycles; 
@@ -465,14 +468,18 @@ void _dhb10_comunicator(void *par)
     pause(2);
     //Close it so we can reopen at higher speed
     fdserial_close(dhb10);
-  #ifdef HALF_DUPLEX
-    dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 57600);    
-  #else    
-    dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
+
+    #ifdef HALF_DUPLEX
+      dhb10 = fdserial_open(DHB10_SERVO_L, DHB10_SERVO_L, 0b1100, 57600);    
+    #else    
+      dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
+    #endif
   #endif
-  #endif
+  //start with clean buffers
+  fdserial_txFlush(dhb10);
   fdserial_rxFlush(dhb10);
-  pause(5);
+
+  pause(1);
   dhb10_opened = 1;
 
  //Loop forever
