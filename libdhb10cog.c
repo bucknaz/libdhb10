@@ -328,9 +328,12 @@ int dbh10_cog_start(void)
   memset(dhb10_reply, 0, DHB10_LEN/2);
   memset(dhb10_cmd, 0, DHB10_LEN/2);
 
-  cmd_ready = 0;//Just starting no commands to send
-  
+  cmd_ready = CMD_NONE;//Just starting no commands to send
+
   dbh10_cog = 1 + cogstart(_dhb10_comunicator, NULL, dbh10_stack, sizeof(dbh10_stack));
+  pause(10);
+  cmd_ready = CMD_STOP;
+  
   return(dbh10_cog);
 }
 
@@ -343,25 +346,15 @@ void dbh10_cog_stop(void)
 {
   if(dbh10_cog)
   {
-<<<<<<< HEAD
     //If the cog is spinning due to a command error
     //it will not ever process the COG_STOPPED command
-    //So we will hang the program here
-    
+    //So we will hang the program here    
     while(cmd_ready != COG_STOPPED)
     { 
       while (lockset(input_lockId) != 0) { /*spin lock*/ }  
       cmd_ready = COG_STOP;//flag cog to close serial port
       lockclr(input_lockId);
       pause(20);//Dont use 100% cpu clocks
-=======
-    while(cmd_ready != COG_STOPPED)
-    { 
-      while (lockset(input_lockId) != 0) { /*spin lock*/ }  
-      cmd_ready = CMD_STOP;//flag cog to close serial port
-      lockclr(input_lockId);
-      pause(100);//Dont use 100% cpu clocks
->>>>>>> d9d79446cea8b21574be3e21a5f223ec8fbad7b8
     }       
       
     cogstop(dbh10_cog -1);
@@ -512,6 +505,17 @@ void _dhb10_comunicator(void *par)
       dhb10 = fdserial_open(DHB10_SERVO_R, DHB10_SERVO_L, 0b0000, 57600);
     #endif
   #endif
+/*  
+  fdserial_txChar(dhb10, 'V');
+  fdserial_txChar(dhb10, 'E');
+  fdserial_txChar(dhb10, 'R');
+  fdserial_txChar(dhb10, 'B');
+  fdserial_txChar(dhb10, ' ');
+  fdserial_txChar(dhb10, 'O');
+  fdserial_txChar(dhb10, 'N');
+  fdserial_txChar(dhb10, '\r');    
+*/  
+  
   //start with clean buffers
   fdserial_txFlush(dhb10);
   fdserial_rxFlush(dhb10);
@@ -714,13 +718,10 @@ void _dhb10_comunicator(void *par)
      break;
         
   case CMD_STOP:// send gospd 0 0 
-// we should use go 0 0 instead
+// we use go 0 0 instead gospd to remove power from the motors
     fdserial_rxFlush(dhb10); //Remove any leftovers
     fdserial_txChar(dhb10, 'G');
     fdserial_txChar(dhb10, 'O');
-    fdserial_txChar(dhb10, 'S');
-    fdserial_txChar(dhb10, 'P');
-    fdserial_txChar(dhb10, 'D');
     fdserial_txChar(dhb10, ' ');
     fdserial_txChar(dhb10, '0');
     fdserial_txChar(dhb10, ' ');
@@ -775,15 +776,15 @@ void _dhb10_comunicator(void *par)
     fdserial_txChar(dhb10, '0');
     fdserial_txChar(dhb10, '0');
     fdserial_txChar(dhb10, '\r');    
-    fdserial_txFlush(dhb10);
 
     fdserial_rxFlush(dhb10);
     fdserial_txFlush(dhb10);   
-    pause(2);
+    pause(10);
     //Close it so we can reopen later
     fdserial_close(dhb10);
     dhb10_opened = 0;
     }      
+    
     cmd_ready = COG_STOPPED; //to indicate we are done
     while(1){pause(1000);}//spin here forever
     break;
@@ -875,13 +876,13 @@ int _dhb10_recive(char *reply)
       break;
     }  
   } 
-  if(reply[i] != 'E')
+  if(reply[0] == 'E')
   {
     Error_cnt++;
-    return(1);
+    return(0);
   }
   Error_cnt=0;    
-  return(0);  
+  return(1);  
 }  
 
 
