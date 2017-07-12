@@ -722,6 +722,9 @@ void _dhb10_comunicator(void *par)
     fdserial_rxFlush(dhb10); //Remove any leftovers
     fdserial_txChar(dhb10, 'G');
     fdserial_txChar(dhb10, 'O');
+    fdserial_txChar(dhb10, 'S');
+    fdserial_txChar(dhb10, 'P');
+    fdserial_txChar(dhb10, 'D');
     fdserial_txChar(dhb10, ' ');
     fdserial_txChar(dhb10, '0');
     fdserial_txChar(dhb10, ' ');
