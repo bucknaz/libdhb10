@@ -740,7 +740,7 @@ void _dhb10_comunicator(void *par)
   //We should try to use predefined commands instead                  
   case CMD_SEND: //Send the string in dhb10_cmd to the board
     fdserial_rxFlush(dhb10); //Remove any leftovers
-    writeLine(dhb10, cmd);
+    writeLine(dhb10, dhb10_cmd);
     fdserial_txFlush(dhb10); // Wait till it has been sent out the port
     if(_dhb10_recive(dhb10_reply))
     {
